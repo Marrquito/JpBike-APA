@@ -71,7 +71,7 @@ vector<Route> clarkeWright(const Instance *instance) {
         int route_i_idx = -1; 
         int route_j_idx = -1;
 
-        for ( int k = 0; k < routes.size(); k++) {
+        for ( int k = 0; k < static_cast<int>(routes.size()); k++) {
             if (routes[k].stations.back() == saving.fromStation && routes[k].stations.size() > 2) {
                 route_i_idx = k;
             } else if (routes[k].stations.back() == saving.toStation && routes[k].stations.size() > 2) {
@@ -91,7 +91,7 @@ vector<Route> clarkeWright(const Instance *instance) {
             // faz a união das rotas
             vector<int> newStations = routes[route_i_idx].stations;
             newStations.pop_back(); // remove o deposito final
-            for ( int j = 1; j < routes[route_j_idx].stations.size(); j++) {
+            for ( int j = 1; j < static_cast<int>(routes[route_j_idx].stations.size()); j++) {
                 newStations.push_back(routes[route_j_idx].stations[j]); // adiciona todas as estações da segunda rota, incluindo o depósito final
             }
 
