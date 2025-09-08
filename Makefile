@@ -1,20 +1,15 @@
 CXX = g++
-CXXFLAGS = -Wall -std=c++17 -Iinclude
+CXXFLAGS = -Wall -std=c++17 -Iinclude -g -O0 -fsanitize=address -fsanitize=undefined
 TARGET = jpBike
 
 # arquivos fonte
-SOURCES = main.cpp src/Instance.cpp
-OBJECTS = $(SOURCES:.cpp=.o)
+SOURCES = main.cpp src/Instance.cpp src/Solver.cpp
 
 # compilar tudo
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) $(OBJECTS) -o $(TARGET)
-
-# compilar arquivos .cpp em .o
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+$(TARGET): $(SOURCES)
+	$(CXX) $(CXXFLAGS) $(SOURCES) -o $(TARGET)
 
 # executar
 run: $(TARGET)
@@ -22,6 +17,6 @@ run: $(TARGET)
 
 # limpar
 clean:
-	rm -f $(TARGET) $(OBJECTS)
+	rm -f $(TARGET)
 
 .PHONY: all run clean
