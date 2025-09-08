@@ -2,11 +2,29 @@
 #include <iomanip>
 #include <algorithm>
 
+#define QTD_VIZINHANCAS 3
+
+typedef enum {
+    SWAP = 1,
+    TWO_OPT,
+    REINSERTION
+} Vizinhança;
+
 struct Saving {
     double value;
     int fromStation;
     int toStation;
 };
+
+double calculateTotalCost(const vector<Route> &routes, const Instance *instance) {
+    double totalCost = 0.0;
+    for (const auto &route : routes) {
+        for (size_t i = 0; i < route.stations.size() - 1; ++i) {
+            totalCost += instance->get_distancias()[route.stations[i]][route.stations[i + 1]];
+        }
+    }
+    return totalCost;
+}
 
 void Solver::Solve(Instance *instance) {
     // primeiro fazer o algoritmo guloso
@@ -14,24 +32,19 @@ void Solver::Solve(Instance *instance) {
     double valorOtimo = instance->valorOtimo;
 
     // custo total das rotas
-    double custoHeuristica = 0.0;
-    for (const auto& route : routes) {
-        for (size_t i = 0; i < route.stations.size() - 1; ++i) {
-            custoHeuristica += instance->get_distancias()[route.stations[i]][route.stations[i+1]];
-        }
-    }
+    double custoHeuristica = calculateTotalCost(routes, instance);
 
     // tabela de comparação
-    std::cout << std::fixed << std::setprecision(2);
-    std::cout << "--------------------------------------------------------------------------\n";
-    std::cout << "| Instancia | Heuristica Construtiva | Valor Otimo |   Gap (%)   |\n";
-    std::cout << "--------------------------------------------------------------------------\n";
-    std::cout << "|"
-              << std::setw(10) << instance->instanceName << " |"
-              << std::setw(22) << custoHeuristica << " |"
-              << std::setw(12) << valorOtimo << " |"
-              << std::setw(11) << ((custoHeuristica - valorOtimo) / valorOtimo * 100.0) << " |\n";
-    std::cout << "--------------------------------------------------------------------------\n";
+    cout << fixed << setprecision(2);
+    cout << "--------------------------------------------------------------------------\n";
+    cout << "| Instancia | Heuristica Construtiva | Valor Otimo |   Gap (%)   |\n";
+    cout << "--------------------------------------------------------------------------\n";
+    cout << "|"
+              << setw(10) << instance->instanceName << " |"
+              << setw(22) << custoHeuristica << " |"
+              << setw(12) << valorOtimo << " |"
+              << setw(11) << (((custoHeuristica - valorOtimo) / valorOtimo) * 100.0) << " |\n";
+    cout << "--------------------------------------------------------------------------\n";
 
 }
 
@@ -102,6 +115,39 @@ vector<Route> clarkeWright(const Instance *instance) {
         }
     }
 
+    return routes;
+}
+
+vector<Route> VND(vector<Route> routes, const Instance *instance) {
+    int k = 1;
+
+    // se encontrar uma solução melhor, atualiza routes e reinicia a busca com mesmo k
+    // caso contrário, incrementar k
+    while (k <= QTD_VIZINHANCAS) {
+        vector<Route> newRoutes;
+        double currentCost = calculateTotalCost(routes, instance);
+
+        switch (k) {
+            case SWAP:
+                // implementar swap
+                break;
+            case TWO_OPT:
+                // implementar 2-opt
+                break;
+            case REINSERTION:
+                // implementar reinsertion
+                break;
+            default:
+                break;
+        }
+
+        double newCost = calculateTotalCost(newRoutes, instance);
+
+        if (newCost < currentCost) {
+            routes = newRoutes;
+            k = 1; // reinicia a vizinhança com a nova solução melhor
+        } else k++; // incrementa a vizinhança
+    }
 
     return routes;
 }
