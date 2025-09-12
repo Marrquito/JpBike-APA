@@ -2,7 +2,7 @@
 #include <iomanip>
 
 //  operador de sobrecarga >>
-istream& operator>>(istream& is, Instance& instance) {
+istream &operator>>(istream &is, Instance &instance) {
     is >> instance.qtdEstacoes >> instance.qtdVeiculos >> instance.capVeiculos;
 
     if (is.fail()) {
@@ -17,12 +17,14 @@ istream& operator>>(istream& is, Instance& instance) {
     if (is.fail()) return is;
 
     // matriz de custos
-    instance.distancias.resize(instance.qtdEstacoes, vector<int>(instance.qtdEstacoes));
-    for (int i = 0; i < instance.qtdEstacoes; ++i) {
-        for (int j = 0; j < instance.qtdEstacoes; ++j) {
+    int matrixSize = instance.qtdEstacoes + 1;
+    instance.distancias.resize(matrixSize, vector<int>(matrixSize));
+    for (int i = 0; i < matrixSize; ++i) {
+        for (int j = 0; j < matrixSize; ++j) {
             is >> instance.distancias[i][j];
         }
     }
+
     return is;
 }
 
@@ -38,13 +40,13 @@ void Instance::print() const {
     cout << endl;
 
     cout << "Distâncias:" << endl;
-    for (int i = 0; i < this->qtdEstacoes; ++i) {
-        for (int j = 0; j < this->qtdEstacoes; ++j) {
+    int matrixSize = this->qtdEstacoes + 1;
+    for (int i = 0; i < matrixSize; ++i) {
+        for (int j = 0; j < matrixSize; ++j) {
             cout << setw(4) << this->distancias[i][j] << " ";
         }
         cout << endl;
     }
-
 }
 
 int Instance::get_qtdEstacoes() const {
