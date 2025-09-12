@@ -16,6 +16,11 @@ struct Saving {
     int toStation;
 };
 
+vector<Route> VND(vector<Route> routes, const Instance *instance);
+vector<Route> performSwap(vector<Route> routes, const Instance *instance);
+vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance);
+vector<Route> performReinsertion(vector<Route> routes, const Instance *instance);
+
 double calculateTotalCost(const vector<Route> &routes, const Instance *instance) {
     double totalCost = 0.0;
     for (const auto &route : routes) {
@@ -44,6 +49,22 @@ void Solver::Solve(Instance *instance) {
               << setw(22) << custoHeuristica << " |"
               << setw(12) << valorOtimo << " |"
               << setw(11) << (((custoHeuristica - valorOtimo) / valorOtimo) * 100.0) << " |\n";
+    cout << "--------------------------------------------------------------------------\n";
+
+    // VND 
+    vector<Route> improvedRoutes = VND(routes, instance);
+    double improvedCost = calculateTotalCost(improvedRoutes, instance);
+
+    // tabela de comparação
+    cout << fixed << setprecision(2);
+    cout << "--------------------------------------------------------------------------\n";
+    cout << "| Instancia | Heuristica Construtiva | Valor Otimo |   Gap (%)   |\n";
+    cout << "--------------------------------------------------------------------------\n";
+    cout << "|"
+              << setw(10) << instance->instanceName << " |"
+              << setw(22) << improvedCost << " |"
+              << setw(12) << valorOtimo << " |"
+              << setw(11) << (((improvedCost - valorOtimo) / valorOtimo) * 100.0) << " |\n";
     cout << "--------------------------------------------------------------------------\n";
 
 }
@@ -129,13 +150,13 @@ vector<Route> VND(vector<Route> routes, const Instance *instance) {
 
         switch (k) {
             case SWAP:
-                // implementar swap
+                newRoutes = performSwap(routes, instance);
                 break;
             case TWO_OPT:
-                // implementar 2-opt
+                newRoutes = performTwoOpt(routes, instance);
                 break;
             case REINSERTION:
-                // implementar reinsertion
+                newRoutes = performReinsertion(routes, instance);
                 break;
             default:
                 break;
@@ -150,4 +171,106 @@ vector<Route> VND(vector<Route> routes, const Instance *instance) {
     }
 
     return routes;
+}
+
+vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
+    vector<Route> bestRoutes = routes;
+    double bestCost = calculateTotalCost(bestRoutes, instance);
+
+    for (int i = 0; i < static_cast<int>(routes.size()); i++) { // passando por todas as rotas
+        vector<int> &currentStations = routes[i].stations;
+
+        if (currentStations.size() <= 3) continue; // não há estações para trocar
+
+        for (int j = 1; j < static_cast<int>(currentStations.size()) -1; j++) {
+            for (int k = j + 1; k < static_cast<int>(currentStations.size()) -1; k++) {
+                vector<Route> tempRoutes = routes;
+                swap(tempRoutes[i].stations[j], tempRoutes[i].stations[k]);
+
+                double tempCost = calculateTotalCost(tempRoutes, instance);
+
+                if (tempCost < bestCost) {
+                    bestCost = tempCost;
+                    bestRoutes = tempRoutes;
+                }
+            }
+        }
+    }
+
+    return bestRoutes;
+}
+
+vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance) {
+    vector<Route> bestRoutes = routes;
+    double bestCost = calculateTotalCost(bestRoutes, instance);
+ 
+    for (int route = 0; route < static_cast<int>(routes.size()); route++) { // passando por todas as rotas
+        vector<int> &currentStations = routes[route].stations;
+
+        if (currentStations.size() <= 4) continue; // minimo de 4 estações para fazer o 2-opt
+
+        for (int i = 1; i < static_cast<int>(currentStations.size()) -2; i++) {
+            for (int j = i + 1; j < static_cast<int>(currentStations.size()) -1; j++) {
+                double delta = -instance->get_distancias()[currentStations[i - 1]][currentStations[i]]
+                               - instance->get_distancias()[currentStations[j]][currentStations[j + 1]]
+                               + instance->get_distancias()[currentStations[i - 1]][currentStations[j]]
+                               + instance->get_distancias()[currentStations[i]][currentStations[j + 1]];
+
+                if (delta < 0) { // encontrou melhoria
+                    vector<int> tempStations = currentStations;
+                    reverse(tempStations.begin() + i, tempStations.begin() + j + 1);
+
+                    vector<Route> tempRoutes = routes;
+                    tempRoutes[route].stations = tempStations;
+
+                    double tempCost = calculateTotalCost(tempRoutes, instance);
+
+                    if (tempCost < bestCost) {
+                        bestCost = tempCost;
+                        bestRoutes = tempRoutes;
+                    }
+                }
+            }
+        }
+    }
+
+    return bestRoutes;
+}
+
+vector<Route> performReinsertion(vector<Route> routes, const Instance *instance) {
+    vector<Route> bestRoutes = routes;
+    double bestCost = calculateTotalCost(bestRoutes, instance);
+
+    for (int route = 0; route < static_cast<int>(routes.size()); route++) {
+        vector<int> &currentStations = routes[route].stations;
+
+        if (currentStations.size() <= 3 ) continue; // sem estações suficientes pra realocar
+
+        for (int i = 1; i < static_cast<int>(currentStations.size()) - 1; i++) {
+            int stationToMove = currentStations[i];
+            
+            for (int j = 1; j < static_cast<int>(currentStations.size()) - 1; j++) {
+                if (i == j) continue;
+
+                vector<int> tempStations = currentStations;
+                tempStations.erase(tempStations.begin() + i); // removendo a estação
+
+                if ( j < i ) tempStations.insert(tempStations.begin() + j, stationToMove); // inserindo na nova posição
+                else tempStations.insert(tempStations.begin() + j - 1, stationToMove); // ajusta o índice se a remoção foi antes da inserção
+
+                vector<Route> tempRoutes = routes;
+                tempRoutes[route].stations = tempStations;
+
+                double tempCost = calculateTotalCost(tempRoutes, instance);
+
+                if (tempCost < bestCost) {
+                    bestCost = tempCost;
+                    bestRoutes = tempRoutes;
+                }
+            }
+        }
+
+    }
+
+    return bestRoutes;
 }
