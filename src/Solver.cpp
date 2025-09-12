@@ -31,6 +31,122 @@ double calculateTotalCost(const vector<Route> &routes, const Instance *instance)
     return totalCost;
 }
 
+bool validateRoutes(const vector<Route> &routes, const Instance *instance) {
+    vector<bool> visitedStations(instance->get_qtdEstacoes(), false);
+    visitedStations[0] = true; // deposito
+    vector<int> demandas = instance->get_demandas();
+    
+    cout << "\n=== VALIDAÇÃO DAS ROTAS ===\n";
+
+    for (int rota = 0; rota < static_cast<int>(routes.size()); rota++) {
+        const Route &route = routes[rota];
+        cout << "\nvalidando Rota " << (rota + 1) << ": ";
+        printRoute(route);
+        
+        // verifica se a rota começa e termina no depósito
+        if (route.stations.empty() || route.stations[0] != 0 || route.stations.back() != 0) {
+            cout << "❌ rota não começa/termina no depósito!\n";
+            return false;
+        }
+        
+        // Verificar se há estações suficientes na rota
+        if (route.stations.size() < 3) {
+            cout << "❌ rota.stations.size < 3: " << route.stations.size() << "\n";
+            return false;
+        }
+        
+        //  carga inicial necessária (total de demandas negativas na rota)
+        int initialLoad = 0;
+        for (int i = 1; i < static_cast<int>(route.stations.size()) - 1; i++) {
+            int station = route.stations[i];
+            if (demandas[station] < 0) {
+                initialLoad += abs(demandas[station]); // demandas negativas
+            }
+        }
+        
+        int currentLoad = initialLoad; // Começar com a carga necessária
+        cout << "   carga inicial necessária: " << initialLoad << "\n";
+        
+        // rota estação por estação (- depósito inicial e final)
+        for (int i = 1; i < static_cast<int>(route.stations.size()) - 1; i++) {
+            int station = route.stations[i];
+            
+            // validando estação
+            if (station == 0) {
+                cout << "❌ depósito aparece no meio da rota\n";
+                return false;
+            }
+            
+            // validando unica visita na estação
+            if (visitedStations[station]) {
+                cout << "❌ estação " << station << " visitada dnv\n";
+                return false;
+            }
+            visitedStations[station] = true;
+            
+            // aplicar demanda da estação
+            currentLoad += demandas[station];
+            
+            // Verificar limites de capacidade
+            if (currentLoad < 0) {
+                cout << "❌ capacidade negativa (" << currentLoad << ") após visitar estação " << station << "!\n";
+                cout << "   demanda da estação: " << demandas[station] << "\n";
+                return false;
+            }
+            
+            if (currentLoad > instance->get_capVeiculos()) {
+                cout << "❌ capacidade excedida (" << currentLoad << "/" << instance->get_capVeiculos() 
+                     << ") após visitar estação " << station << "!\n";
+                return false;
+            }
+            
+            string action = (demandas[station] < 0) ? "retirou" : "entregou";
+            cout << "   Estação " << station << " (" << action << " " << abs(demandas[station]) 
+                 << " bicicletas) -> Carga atual: " << currentLoad << "/" << instance->get_capVeiculos() << "\n";
+        }
+
+        cout << "✅ Rota " << (rota + 1) << " válida! Carga final: " << currentLoad 
+             << " (inicial: " << initialLoad << ")\n";
+    }
+    
+    // todas estações visitadas
+    for (int i = 1; i < instance->get_qtdEstacoes(); i++) {
+        if (!visitedStations[i]) {
+            cout << "❌ estação " << i << " não foi visitada!\n";
+            return false;
+        }
+    }
+    
+    cout << "\n✅ TODAS AS ROTAS SÃO VÁLIDAS!\n";
+    return true;
+}
+
+void printRoute(const Route &route) {
+    cout << "[";
+    for (int i = 0; i < static_cast<int>(route.stations.size()); i++) {
+        cout << route.stations[i];
+        if (i < route.stations.size() - 1) cout << " -> ";
+    }
+    cout << "] capacidade: " << route.capacity << ")\n";
+}
+
+void printAllRoutes(const vector<Route> &routes, const Instance *instance) {
+    cout << "\n=== ROTAS ENCONTRADAS ===\n";
+    cout << "número total de rotas: " << routes.size() << "\n";
+    cout << "custo total: " << calculateTotalCost(routes, instance) << "\n\n";
+
+    for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+        cout << "rota " << (i + 1) << ": ";
+        printRoute(routes[i]);
+    }
+
+    int totalDemand = 0;
+    for (const auto &route : routes) {
+        totalDemand += abs(route.capacity);
+    }
+    cout << "demanda total atendida: " << totalDemand << "\n";
+}
+
 void Solver::Solve(Instance *instance) {
     // primeiro fazer o algoritmo guloso
     vector<Route>routes = clarkeWright(instance);
