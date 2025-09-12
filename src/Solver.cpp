@@ -140,7 +140,8 @@ void printAllRoutes(const vector<Route> &routes, const Instance *instance) {
         cout << "rota " << (i + 1) << ": ";
         printRoute(routes[i]);
     }
-    cout << endl;}
+    cout << endl;
+}
 
 void Solver::Solve(Instance *instance) {
     cout << "\n=== Iniciando GULOSO ===\n";
