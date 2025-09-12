@@ -23,5 +23,8 @@ class Solver {
 };
 
 vector<Route> clarkeWright(const Instance *instance);
+bool validateRoutes(const vector<Route> &routes, const Instance *instance);
+void printRoute(const Route &route);
+void printAllRoutes(const vector<Route> &routes, const Instance *instance);
 
 #endif

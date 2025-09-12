@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #define QTD_VIZINHANCAS 3
+// #define VALIDATE_ROUTES
 
 typedef enum {
     SWAP = 1,
@@ -125,13 +126,13 @@ void printRoute(const Route &route) {
     cout << "[";
     for (int i = 0; i < static_cast<int>(route.stations.size()); i++) {
         cout << route.stations[i];
-        if (i < route.stations.size() - 1) cout << " -> ";
+        if (i < static_cast<int>(route.stations.size()) - 1) cout << " -> ";
     }
     cout << "] capacidade: " << route.capacity << ")\n";
 }
 
 void printAllRoutes(const vector<Route> &routes, const Instance *instance) {
-    cout << "\n=== ROTAS ENCONTRADAS ===\n";
+    cout << "=== ROTAS ENCONTRADAS ===\n";
     cout << "número total de rotas: " << routes.size() << "\n";
     cout << "custo total: " << calculateTotalCost(routes, instance) << "\n\n";
 
@@ -139,15 +140,11 @@ void printAllRoutes(const vector<Route> &routes, const Instance *instance) {
         cout << "rota " << (i + 1) << ": ";
         printRoute(routes[i]);
     }
-
-    int totalDemand = 0;
-    for (const auto &route : routes) {
-        totalDemand += abs(route.capacity);
-    }
-    cout << "demanda total atendida: " << totalDemand << "\n";
-}
+    cout << endl;}
 
 void Solver::Solve(Instance *instance) {
+    cout << "\n=== Iniciando GULOSO ===\n";
+    
     // primeiro fazer o algoritmo guloso
     vector<Route>routes = clarkeWright(instance);
     double valorOtimo = instance->valorOtimo;
@@ -155,7 +152,20 @@ void Solver::Solve(Instance *instance) {
     // custo total das rotas
     double custoHeuristica = calculateTotalCost(routes, instance);
 
+    // imprimir rotas da heurística construtiva
+    cout << "\n=== ROTAS DA HEURÍSTICA CONSTRUTIVA ===\n";
+    printAllRoutes(routes, instance);
+    
+    // validar rotas da heurística construtiva
+#ifdef VALIDATE_ROUTES
+    if (!validateRoutes(routes, instance)) {
+        cout << "❌ rotas do guloso são inválidas!\n";
+        return;
+    }
+#endif
+
     // tabela de comparação
+    cout << "\n=== TABELA DE COMPARAÇÃO HEURÍSTICA CONSTRUTIVA ===\n";
     cout << fixed << setprecision(2);
     cout << "--------------------------------------------------------------------------\n";
     cout << "| Instancia | Heuristica Construtiva | Valor Otimo |   Gap (%)   |\n";
@@ -167,14 +177,28 @@ void Solver::Solve(Instance *instance) {
               << setw(11) << (((custoHeuristica - valorOtimo) / valorOtimo) * 100.0) << " |\n";
     cout << "--------------------------------------------------------------------------\n";
 
-    // VND 
+    cout << "\n=== EXECUTANDO VND ===\n";
+    
+    // VND
     vector<Route> improvedRoutes = VND(routes, instance);
     double improvedCost = calculateTotalCost(improvedRoutes, instance);
 
-    // tabela de comparação
+#ifdef VALIDATE_ROUTES
+    // imprimir rotas melhoradas
+    cout << "\n=== ROTAS APÓS VND ===\n";
+    printAllRoutes(improvedRoutes, instance);
+    
+    // validar rotas melhoradas
+    if (!validateRoutes(improvedRoutes, instance)) {
+        cout << "❌ rotas após VND são inválidas!\n";
+        return;
+    }
+#endif
+
+    cout << "\n=== COMPARAÇÃO (APÓS VND) ===\n";
     cout << fixed << setprecision(2);
     cout << "--------------------------------------------------------------------------\n";
-    cout << "| Instancia | Heuristica Construtiva | Valor Otimo |   Gap (%)   |\n";
+    cout << "| Instancia | Heuristica + VND      | Valor Otimo |   Gap (%)   |\n";
     cout << "--------------------------------------------------------------------------\n";
     cout << "|"
               << setw(10) << instance->instanceName << " |"
@@ -182,7 +206,13 @@ void Solver::Solve(Instance *instance) {
               << setw(12) << valorOtimo << " |"
               << setw(11) << (((improvedCost - valorOtimo) / valorOtimo) * 100.0) << " |\n";
     cout << "--------------------------------------------------------------------------\n";
-
+    
+    // mostrar melhoria obtida
+    double improvement = ((custoHeuristica - improvedCost) / custoHeuristica) * 100.0;
+    cout << "\n=== MELHORIA OBTIDA ===\n";
+    cout << "Custo inicial (GULOSO): " << custoHeuristica << "\n";
+    cout << "Custo final (após VND): " << improvedCost << "\n";
+    cout << "Melhoria: " << improvement << "%\n";
 }
 
 // comparar economias em ordem decrescente
@@ -198,9 +228,10 @@ vector<Route> clarkeWright(const Instance *instance) {
     vector<int> demandas = instance->get_demandas(); 
     vector<vector<int>> distancias = instance->get_distancias();
     
-    // cada estação tem sua propria rota
-    for (int i = 0; i < instance->get_qtdEstacoes(); i++) {
-        routes.push_back({ {0, i, 0}, demandas[i]}); // deposito -> estacao -> deposito
+    // cada estação tem sua propria rota (exceto o depósito)
+    for (int i = 1; i < instance->get_qtdEstacoes(); i++) { // começa em 1 para ignorar o deposito
+        int capacityNeeded = abs(demandas[i]); // Capacidade necessária é o valor absoluto da demanda
+        routes.push_back({ {0, i, 0}, capacityNeeded}); // deposito -> estacao -> deposito
     }
 
     // calcular economias: S(i,j) = d(0,i) + d(0,j) - d(i,j)
@@ -374,6 +405,8 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
                 if ( j < i ) tempStations.insert(tempStations.begin() + j, stationToMove); // inserindo na nova posição
                 else tempStations.insert(tempStations.begin() + j - 1, stationToMove); // ajusta o índice se a remoção foi antes da inserção
 
+                // capacidade não muda em reinsertion (mesmas estações, só ordem diferente)
+                // tempRoutes[route].capacity permanece a mesma
                 vector<Route> tempRoutes = routes;
                 tempRoutes[route].stations = tempStations;
 
@@ -385,7 +418,6 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
                 }
             }
         }
-
     }
 
     return bestRoutes;
