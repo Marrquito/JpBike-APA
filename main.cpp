@@ -18,6 +18,14 @@ int main()
     int valor_otimo;
     cout << "Digite o valor ótimo da instância: ";
     cin >> valor_otimo;
+
+    float alpha;
+    cout << "Digite o valor de alpha (0.0 a 1.0): ";
+    cin >> alpha;
+
+    int repetitions;
+    cout << "Digite o número de repetições para o GRASP: ";
+    cin >> repetitions;
     
     if (!file) 
     {
@@ -25,7 +33,7 @@ int main()
         return -1;
     }
 
-    Instance instancia(valor_otimo, filename);
+    Instance instancia(valor_otimo, filename, alpha, repetitions);
 
     file >> instancia;
     // instancia.print();

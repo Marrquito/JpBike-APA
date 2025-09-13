@@ -1,6 +1,9 @@
 #include "Solver.hpp"
 #include <iomanip>
 #include <algorithm>
+#include <limits>
+#include <cstdlib>
+#include <ctime>
 
 #define QTD_VIZINHANCAS 3
 // #define VALIDATE_ROUTES
@@ -21,6 +24,8 @@ vector<Route> VND(vector<Route> routes, const Instance *instance);
 vector<Route> performSwap(vector<Route> routes, const Instance *instance);
 vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance);
 vector<Route> performReinsertion(vector<Route> routes, const Instance *instance);
+
+vector<Route> GRASPConstruction(const Instance *instance);
 
 double calculateTotalCost(const vector<Route> &routes, const Instance *instance) {
     double totalCost = 0.0;
@@ -144,76 +149,47 @@ void printAllRoutes(const vector<Route> &routes, const Instance *instance) {
 }
 
 void Solver::Solve(Instance *instance) {
-    cout << "\n=== Iniciando GULOSO ===\n";
+    cout << "\n=== Iniciando GRASP ===\n";
     
-    // primeiro fazer o algoritmo guloso
-    vector<Route>routes = clarkeWright(instance);
+    // Inicializar semente aleatória
+    srand(static_cast<unsigned int>(time(nullptr)));
+
+    vector<Route> bestSolutions;
+    double bestCost = numeric_limits<double>::max();
     double valorOtimo = instance->valorOtimo;
 
-    // custo total das rotas
-    double custoHeuristica = calculateTotalCost(routes, instance);
+    for (int i = 0; i < instance->repetitions; i++) {
+        cout << "\n--- Iteração " << (i + 1) << " ---\n";
 
-    // imprimir rotas da heurística construtiva
-    cout << "\n=== ROTAS DA HEURÍSTICA CONSTRUTIVA ===\n";
-    printAllRoutes(routes, instance);
-    
-    // validar rotas da heurística construtiva
-#ifdef VALIDATE_ROUTES
-    if (!validateRoutes(routes, instance)) {
-        cout << "❌ rotas do guloso são inválidas!\n";
-        return;
+        // fase 1
+        vector<Route> routes = GRASPConstruction(instance);
+
+        // fase 2
+        vector<Route> improvedRoutes = VND(routes, instance);
+        double improvedCost = calculateTotalCost(improvedRoutes, instance);
+
+        if (improvedCost < bestCost) {
+            bestCost = improvedCost;
+            bestSolutions = improvedRoutes;
+        }
     }
-#endif
 
-    // tabela de comparação
-    cout << "\n=== TABELA DE COMPARAÇÃO HEURÍSTICA CONSTRUTIVA ===\n";
+    // Tabela final de comparação, agora com a melhor solução do GRASP
+    cout << "\n=== RESULTADO FINAL GRASP ===\n";
     cout << fixed << setprecision(2);
     cout << "--------------------------------------------------------------------------\n";
-    cout << "| Instancia | Heuristica Construtiva | Valor Otimo |   Gap (%)   |\n";
+    cout << "| Instancia | Custo GRASP + VND     | Valor Otimo |   Gap (%)   |\n";
     cout << "--------------------------------------------------------------------------\n";
     cout << "|"
               << setw(10) << instance->instanceName << " |"
-              << setw(22) << custoHeuristica << " |"
+              << setw(22) << bestCost << " |"
               << setw(12) << valorOtimo << " |"
-              << setw(11) << (((custoHeuristica - valorOtimo) / valorOtimo) * 100.0) << " |\n";
-    cout << "--------------------------------------------------------------------------\n";
-
-    cout << "\n=== EXECUTANDO VND ===\n";
-    
-    // VND
-    vector<Route> improvedRoutes = VND(routes, instance);
-    double improvedCost = calculateTotalCost(improvedRoutes, instance);
-
-#ifdef VALIDATE_ROUTES
-    // imprimir rotas melhoradas
-    cout << "\n=== ROTAS APÓS VND ===\n";
-    printAllRoutes(improvedRoutes, instance);
-    
-    // validar rotas melhoradas
-    if (!validateRoutes(improvedRoutes, instance)) {
-        cout << "❌ rotas após VND são inválidas!\n";
-        return;
-    }
-#endif
-
-    cout << "\n=== COMPARAÇÃO (APÓS VND) ===\n";
-    cout << fixed << setprecision(2);
-    cout << "--------------------------------------------------------------------------\n";
-    cout << "| Instancia | Heuristica + VND      | Valor Otimo |   Gap (%)   |\n";
-    cout << "--------------------------------------------------------------------------\n";
-    cout << "|"
-              << setw(10) << instance->instanceName << " |"
-              << setw(22) << improvedCost << " |"
-              << setw(12) << valorOtimo << " |"
-              << setw(11) << (((improvedCost - valorOtimo) / valorOtimo) * 100.0) << " |\n";
+              << setw(11) << (((bestCost - valorOtimo) / valorOtimo) * 100.0) << " |\n";
     cout << "--------------------------------------------------------------------------\n";
     
-    // mostrar melhoria obtida
-    double improvement = ((custoHeuristica - improvedCost) / custoHeuristica) * 100.0;
-    cout << "\n=== MELHORIA OBTIDA ===\n";
-    cout << "Custo inicial (GULOSO): " << custoHeuristica << "\n";
-    cout << "Custo final (após VND): " << improvedCost << "\n";
-    cout << "Melhoria: " << improvement << "%\n";
+    // Opcionalmente, você pode adicionar a melhor rota final
+    cout << "\n=== MELHOR SOLUÇÃO ENCONTRADA ===\n";
+    printAllRoutes(bestSolutions, instance);
 }
 
 // comparar economias em ordem decrescente
@@ -422,4 +398,126 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
     }
 
     return bestRoutes;
+}
+
+vector<Route> GRASPConstruction(const Instance *instance) {
+    vector<Route> routes;
+    vector<int> demandas = instance->get_demandas(); 
+    vector<vector<int>> distancias = instance->get_distancias();
+    
+    // Parâmetro alpha para controlar a aleatoriedade (0 = guloso, 1 = totalmente aleatório)
+    float alpha = instance->alpha;
+    
+    // Cada estação tem sua própria rota inicial (exceto o depósito)
+    for (int i = 1; i < instance->get_qtdEstacoes(); i++) {
+        int capacityNeeded = abs(demandas[i]);
+        routes.push_back({ {0, i, 0}, capacityNeeded});
+    }
+
+    // Continua até não conseguir mais fazer uniões viáveis
+    bool foundImprovement = true;
+    while (foundImprovement && routes.size() > 1) {
+        foundImprovement = false;
+        vector<Saving> candidateSavings;
+
+        // Calcular todas as economias viáveis possíveis
+        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+            for (int j = i + 1; j < static_cast<int>(routes.size()); j++) {
+                // Verificar se as rotas podem ser unidas
+                if (routes[i].capacity + routes[j].capacity <= instance->get_capVeiculos()) {
+                    // Encontrar as estações que podem ser conectadas
+                    vector<int> connectableStations_i, connectableStations_j;
+                    
+                    // Estações conectáveis da rota i (primeira e última estação não-depósito)
+                    if (routes[i].stations.size() > 2) {
+                        connectableStations_i.push_back(routes[i].stations[1]); // primeira estação
+                        connectableStations_i.push_back(routes[i].stations[routes[i].stations.size()-2]); // última estação
+                    }
+                    
+                    // Estações conectáveis da rota j
+                    if (routes[j].stations.size() > 2) {
+                        connectableStations_j.push_back(routes[j].stations[1]); // primeira estação
+                        connectableStations_j.push_back(routes[j].stations[routes[j].stations.size()-2]); // última estação
+                    }
+                    
+                    // Calcular savings para todas as combinações possíveis
+                    for (int station_i : connectableStations_i) {
+                        for (int station_j : connectableStations_j) {
+                            double savingValue = distancias[0][station_i] + distancias[0][station_j] - distancias[station_i][station_j];
+                            candidateSavings.push_back({savingValue, station_i, station_j});
+                        }
+                    }
+                }
+            }
+        }
+
+        if (candidateSavings.empty()) break;
+
+        // Ordenar savings em ordem decrescente
+        sort(candidateSavings.begin(), candidateSavings.end(), compareSavings);
+
+        // Criar Lista Restrita de Candidatos (RCL)
+        double bestSaving = candidateSavings[0].value;
+        double worstSaving = candidateSavings.back().value;
+        double threshold = bestSaving - alpha * (bestSaving - worstSaving);
+        
+        vector<Saving> rcl;
+        for (const auto &saving : candidateSavings) {
+            if (saving.value >= threshold) {
+                rcl.push_back(saving);
+            }
+        }
+
+        // Escolher aleatoriamente um saving da RCL
+        if (!rcl.empty()) {
+            int randomIndex = rand() % rcl.size();
+            Saving selectedSaving = rcl[randomIndex];
+            
+            // Encontrar as rotas que contêm as estações do saving selecionado
+            int route_i_idx = -1, route_j_idx = -1;
+            
+            for (int k = 0; k < static_cast<int>(routes.size()); k++) {
+                // Verificar se a rota contém fromStation
+                for (int station : routes[k].stations) {
+                    if (station == selectedSaving.fromStation) {
+                        route_i_idx = k;
+                        break;
+                    }
+                }
+                // Verificar se a rota contém toStation
+                for (int station : routes[k].stations) {
+                    if (station == selectedSaving.toStation) {
+                        route_j_idx = k;
+                        break;
+                    }
+                }
+            }
+
+            // Verificar se encontrou ambas as rotas e se são diferentes
+            if (route_i_idx != -1 && route_j_idx != -1 && route_i_idx != route_j_idx) {
+                // Verificar restrição de capacidade
+                if (routes[route_i_idx].capacity + routes[route_j_idx].capacity <= instance->get_capVeiculos()) {
+                    // Fazer a união das rotas
+                    vector<int> newStations = routes[route_i_idx].stations;
+                    newStations.pop_back(); // remove o depósito final
+                    
+                    for (int j = 1; j < static_cast<int>(routes[route_j_idx].stations.size()); j++) {
+                        newStations.push_back(routes[route_j_idx].stations[j]);
+                    }
+
+                    int newCapacity = routes[route_i_idx].capacity + routes[route_j_idx].capacity;
+                    
+                    // Remover as rotas antigas (maior índice primeiro)
+                    routes.erase(routes.begin() + max(route_i_idx, route_j_idx));
+                    routes.erase(routes.begin() + min(route_i_idx, route_j_idx));
+                    
+                    // Adicionar a nova rota
+                    routes.push_back({newStations, newCapacity});
+                    foundImprovement = true;
+                }
+            }
+        }
+    }
+
+    return routes;
 }

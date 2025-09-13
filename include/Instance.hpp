@@ -15,10 +15,14 @@ class Instance {
         vector<int> demandas;
         vector<vector<int>> distancias;
 
+
     public:
         int valorOtimo;
         string instanceName;
-        Instance(int valor_otimo, string instance_name) : qtdEstacoes(0), qtdVeiculos(0), capVeiculos(0), valorOtimo(valor_otimo), instanceName(instance_name) {}
+        float alpha;
+        int repetitions;
+
+        Instance(int valor_otimo, string instance_name, float alpha, int repetitions) : qtdEstacoes(0), qtdVeiculos(0), capVeiculos(0), valorOtimo(valor_otimo), instanceName(instance_name), alpha(alpha), repetitions(repetitions) {}
 
         // Sobrecarga do operador de entrada (>>), declarada como friend
         friend istream &operator>>(istream &is, Instance &instance);
