@@ -543,7 +543,7 @@ vector<Route> GRASPConstruction(const Instance *instance) {
         // Lista Restrita de Candidatos (RCL)
         double bestSaving = candidateSavings[0].value;
         double worstSaving = candidateSavings.back().value;
-        double threshold = bestSaving - (alpha * (bestSaving - worstSaving));
+        double threshold = worstSaving + alpha * (bestSaving - worstSaving);
         
         vector<Saving> rcl;
         for (const auto &saving : candidateSavings) {
