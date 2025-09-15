@@ -6,7 +6,6 @@
 #include <ctime>
 
 #define QTD_VIZINHANCAS 3
-// #define VALIDATE_ROUTES
 
 typedef enum {
     SWAP = 1,
@@ -28,10 +27,27 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
 vector<Route> GRASPConstruction(const Instance *instance);
 
 double calculateTotalCost(const vector<Route> &routes, const Instance *instance) {
+    if (routes.empty()) return 0.0;
+    
+    const auto &distancias = instance->get_distancias(); // Cache da referência
     double totalCost = 0.0;
+    
     for (const auto &route : routes) {
-        for (size_t i = 0; i < route.stations.size() - 1; ++i) {
-            totalCost += instance->get_distancias()[route.stations[i]][route.stations[i + 1]];
+        const auto &stations = route.stations; // Cache da referência
+        const size_t stationsSize = stations.size();
+        
+        // Loop desenrolado para as rotas pequenas (mais comuns)
+        if (stationsSize == 3) { // [0, station, 0]
+            totalCost += distancias[stations[0]][stations[1]] + distancias[stations[1]][stations[2]];
+        } else if (stationsSize == 4) { // [0, s1, s2, 0]
+            totalCost += distancias[stations[0]][stations[1]] 
+                       + distancias[stations[1]][stations[2]]
+                       + distancias[stations[2]][stations[3]];
+        } else {
+            // Loop otimizado para rotas maiores
+            for (size_t i = 0; i < stationsSize - 1; ++i) {
+                totalCost += distancias[stations[i]][stations[i + 1]];
+            }
         }
     }
     return totalCost;
@@ -102,96 +118,6 @@ bool validateRoutesQuiet(const vector<Route> &routes, const Instance *instance) 
         }
     }
     
-    return true;
-}
-
-bool validateRoutes(const vector<Route> &routes, const Instance *instance) {
-    vector<bool> visitedStations(instance->get_qtdEstacoes() + 1, false);
-    visitedStations[0] = true; // deposito
-    vector<int> demandas = instance->get_demandas();
-    
-    cout << "\n=== VALIDAÇÃO DAS ROTAS ===\n";
-
-    for (int rota = 0; rota < static_cast<int>(routes.size()); rota++) {
-        const Route &route = routes[rota];
-        cout << "\nvalidando Rota " << (rota + 1) << ": ";
-        printRoute(route);
-        
-        // verifica se a rota começa e termina no depósito
-        if (route.stations.empty() || route.stations[0] != 0 || route.stations.back() != 0) {
-            cout << "❌ rota não começa/termina no depósito!\n";
-            return false;
-        }
-        
-        // Verificar se há estações suficientes na rota
-        if (route.stations.size() < 3) {
-            cout << "❌ rota.stations.size < 3: " << route.stations.size() << "\n";
-            return false;
-        }
-        
-        //  carga inicial necessária (total de demandas negativas na rota)
-        int initialLoad = 0;
-        for (int i = 1; i < static_cast<int>(route.stations.size()) - 1; i++) {
-            int station = route.stations[i];
-            if (demandas[station - 1] < 0) { // -1 porque demandas não inclui depósito
-                initialLoad += abs(demandas[station - 1]); // demandas negativas
-            }
-        }
-        
-        int currentLoad = initialLoad; // Começar com a carga necessária
-        cout << "   carga inicial necessária: " << initialLoad << "\n";
-        
-        // rota estação por estação (- depósito inicial e final)
-        for (int i = 1; i < static_cast<int>(route.stations.size()) - 1; i++) {
-            int station = route.stations[i];
-            
-            // validando estação
-            if (station == 0) {
-                cout << "❌ depósito aparece no meio da rota\n";
-                return false;
-            }
-            
-            // validando unica visita na estação
-            if (visitedStations[station]) {
-                cout << "❌ estação " << station << " visitada dnv\n";
-                return false;
-            }
-            visitedStations[station] = true;
-            
-            // aplicar demanda da estação
-            currentLoad += demandas[station - 1]; // -1 porque demandas não inclui depósito
-            
-            // Verificar limites de capacidade
-            if (currentLoad < 0) {
-                cout << "❌ capacidade negativa (" << currentLoad << ") após visitar estação " << station << "!\n";
-                cout << "   demanda da estação: " << demandas[station - 1] << "\n";
-                return false;
-            }
-            
-            if (currentLoad > instance->get_capVeiculos()) {
-                cout << "❌ capacidade excedida (" << currentLoad << "/" << instance->get_capVeiculos() 
-                     << ") após visitar estação " << station << "!\n";
-                return false;
-            }
-            
-            string action = (demandas[station - 1] < 0) ? "retirou" : "entregou";
-            cout << "   Estação " << station << " (" << action << " " << abs(demandas[station - 1]) 
-                 << " bicicletas) -> Carga atual: " << currentLoad << "/" << instance->get_capVeiculos() << "\n";
-        }
-
-        cout << "✅ Rota " << (rota + 1) << " válida! Carga final: " << currentLoad 
-             << " (inicial: " << initialLoad << ")\n";
-    }
-    
-    // todas estações visitadas
-    for (int i = 1; i <= instance->get_qtdEstacoes(); i++) {
-        if (!visitedStations[i]) {
-            cout << "❌ estação " << i << " não foi visitada!\n";
-            return false;
-        }
-    }
-    
-    cout << "\n✅ TODAS AS ROTAS SÃO VÁLIDAS!\n";
     return true;
 }
 
@@ -280,25 +206,28 @@ bool compareSavings(const Saving &a, const Saving &b) {
 }
 
 int calculateRouteCapacity(const vector<int> &stations, const Instance *instance) {
-    vector<int> demandas = instance->get_demandas();
+    if (stations.size() <= 2) return 0;
+    
+    const vector<int> &demandas = instance->get_demandas();
     int maxLoad = 0;
     int currentLoad = 0;
     
-    // 1° calcular carga inicial necessária (somatório de demandas negativas)
-    for (int i = 1; i < static_cast<int>(stations.size()) - 1; i++) {
-        int station = stations[i];
-        if (demandas[station - 1] < 0) {
-            currentLoad += abs(demandas[station - 1]);
+    //carga inicial necessária (somatório de demandas negativas)
+    for (size_t i = 1; i < stations.size() - 1; ++i) {
+        int demand = demandas[stations[i] - 1];
+        if (demand < 0) {
+            currentLoad -= demand; // demand é negativo, então -= torna positivo
         }
     }
     
     maxLoad = currentLoad; // carga inicial
     
-    // simulando a rota pra encontrar a carga máxima
-    for (int i = 1; i < static_cast<int>(stations.size()) - 1; i++) {
-        int station = stations[i];
-        currentLoad += demandas[station - 1]; // demanda negativa diminui, positiva aumenta
-        maxLoad = max(maxLoad, currentLoad);
+    // simulando a rota pra encontrar a carga máxima - otimizado
+    for (size_t i = 1; i < stations.size() - 1; ++i) {
+        currentLoad += demandas[stations[i] - 1]; // demanda negativa diminui, positiva aumenta
+        if (currentLoad > maxLoad) {
+            maxLoad = currentLoad;
+        }
     }
     
     return maxLoad;
@@ -308,20 +237,20 @@ vector<Route> VND(vector<Route> routes, const Instance *instance) {
     vector<Vizinhança> neighborhoodOrder = {SWAP, TWO_OPT, REINSERTION};
     
     int k = 0; // vizinhança atual
+    double currentCost = calculateTotalCost(routes, instance);
 
     while (k < QTD_VIZINHANCAS) {
-        vector<Route> newRoutes;
-        double currentCost = calculateTotalCost(routes, instance);
+        vector<Route> newRoutes = routes;
 
         switch (neighborhoodOrder[k]) {
             case SWAP:
-                newRoutes = performSwap(routes, instance);
+                newRoutes = performSwap(newRoutes, instance);
                 break;
             case TWO_OPT:
-                newRoutes = performTwoOpt(routes, instance);
+                newRoutes = performTwoOpt(newRoutes, instance);
                 break;
             case REINSERTION:
-                newRoutes = performReinsertion(routes, instance);
+                newRoutes = performReinsertion(newRoutes, instance);
                 break;
             default:
                 break;
@@ -329,8 +258,9 @@ vector<Route> VND(vector<Route> routes, const Instance *instance) {
 
         double newCost = calculateTotalCost(newRoutes, instance);
 
-        if (newCost < currentCost) {
+        if (newCost < currentCost - 1e-9) {
             routes = newRoutes;
+            currentCost = newCost;
             k = 0; // reinicia a vizinhança com a nova solução melhor
         } else {
             k++; // incrementa a vizinhança
@@ -340,236 +270,207 @@ vector<Route> VND(vector<Route> routes, const Instance *instance) {
     return routes;
 }
 
-double calculateRouteCost(const Route& route, const Instance* instance) {
-    double cost = 0.0;
-    for (size_t i = 0; i < route.stations.size() - 1; ++i) {
-        cost += instance->get_distancias()[route.stations[i]][route.stations[i + 1]];
-    }
-    return cost;
-}
-
 vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
-    bool improvement = true;
     const auto& distancias = instance->get_distancias();
+    
+    // SWAP INTRA-ROTA - First Improvement com cálculo incremental
+    for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+        if (routes[i].stations.size() <= 3) continue;
 
-    while (improvement) {
-        improvement = false;
-        
-        // 1. SWAP INTRA-ROTA
-        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
-            if (routes[i].stations.size() <= 3) continue;
+        for (size_t j = 1; j < routes[i].stations.size() - 1; j++) {
+            for (size_t k = j + 1; k < routes[i].stations.size() - 1; k++) {
+                
 
-            for (size_t j = 1; j < routes[i].stations.size() - 1; j++) {
-                for (size_t k = j + 1; k < routes[i].stations.size() - 1; k++) {
-                    
-                    double delta = 0;
-                    int s_j_prev = routes[i].stations[j - 1];
-                    int s_j = routes[i].stations[j];
-                    int s_j_next = routes[i].stations[j + 1];
-                    int s_k_prev = routes[i].stations[k - 1];
-                    int s_k = routes[i].stations[k];
-                    int s_k_next = routes[i].stations[k + 1];
+                double delta = 0;
+                int s_j_prev = routes[i].stations[j - 1];
+                int s_j = routes[i].stations[j];
+                int s_j_next = routes[i].stations[j + 1];
+                int s_k_prev = routes[i].stations[k - 1];
+                int s_k = routes[i].stations[k];
+                int s_k_next = routes[i].stations[k + 1];
 
-                    if (k == j + 1) { // Estações adjacentes
-                        delta = -distancias[s_j_prev][s_j] - distancias[s_j][s_k] - distancias[s_k][s_k_next]
-                                + distancias[s_j_prev][s_k] + distancias[s_k][s_j] + distancias[s_j][s_k_next];
-                    } else { // Estações não adjacentes
-                        delta = -distancias[s_j_prev][s_j] - distancias[s_j][s_j_next] 
-                                - distancias[s_k_prev][s_k] - distancias[s_k][s_k_next]
-                                + distancias[s_j_prev][s_k] + distancias[s_k][s_j_next]
-                                + distancias[s_k_prev][s_j] + distancias[s_j][s_k_next];
+                if (k == j + 1) { // Estações adjacentes - caso especial otimizado
+                    delta = -distancias[s_j_prev][s_j] - distancias[s_j][s_k] - distancias[s_k][s_k_next]
+                            + distancias[s_j_prev][s_k] + distancias[s_k][s_j] + distancias[s_j][s_k_next];
+                } else { // Estações não adjacentes
+                    delta = -distancias[s_j_prev][s_j] - distancias[s_j][s_j_next] 
+                            - distancias[s_k_prev][s_k] - distancias[s_k][s_k_next]
+                            + distancias[s_j_prev][s_k] + distancias[s_k][s_j_next]
+                            + distancias[s_k_prev][s_j] + distancias[s_j][s_k_next];
+                }
+
+                if (delta < -1e-9) {
+                    swap(routes[i].stations[j], routes[i].stations[k]);
+                    int newCapacity = calculateRouteCapacity(routes[i].stations, instance);
+                    if (newCapacity <= instance->get_capVeiculos()) {
+                        routes[i].capacity = newCapacity;
+                        return routes; // First Improvement - retorna imediatamente
+                    } else {
+                        swap(routes[i].stations[j], routes[i].stations[k]); // Reverte
                     }
+                }
+            }
+        }
+    }
+
+    // SWAP INTER-ROTAS - First Improvement com cálculo incremental
+    for (int r1_idx = 0; r1_idx < static_cast<int>(routes.size()); r1_idx++) {
+        for (int r2_idx = r1_idx + 1; r2_idx < static_cast<int>(routes.size()); r2_idx++) {
+            for (size_t s1_idx = 1; s1_idx < routes[r1_idx].stations.size() - 1; s1_idx++) {
+                for (size_t s2_idx = 1; s2_idx < routes[r2_idx].stations.size() - 1; s2_idx++) {
+                    
+                    int s1_prev = routes[r1_idx].stations[s1_idx - 1];
+                    int s1 = routes[r1_idx].stations[s1_idx];
+                    int s1_next = routes[r1_idx].stations[s1_idx + 1];
+                    
+                    int s2_prev = routes[r2_idx].stations[s2_idx - 1];
+                    int s2 = routes[r2_idx].stations[s2_idx];
+                    int s2_next = routes[r2_idx].stations[s2_idx + 1];
+
+                    double delta = - (distancias[s1_prev][s1] + distancias[s1][s1_next])
+                                   - (distancias[s2_prev][s2] + distancias[s2][s2_next])
+                                   + (distancias[s1_prev][s2] + distancias[s2][s1_next])
+                                   + (distancias[s2_prev][s1] + distancias[s1][s2_next]);
 
                     if (delta < -1e-9) {
-                        swap(routes[i].stations[j], routes[i].stations[k]);
-                        int newCapacity = calculateRouteCapacity(routes[i].stations, instance);
-                        if (newCapacity <= instance->get_capVeiculos()) {
-                            routes[i].capacity = newCapacity;
-                            improvement = true;
-                            goto next_swap_iteration;
+                        swap(routes[r1_idx].stations[s1_idx], routes[r2_idx].stations[s2_idx]);
+
+                        int newCap1 = calculateRouteCapacity(routes[r1_idx].stations, instance);
+                        int newCap2 = calculateRouteCapacity(routes[r2_idx].stations, instance);
+
+                        if (newCap1 <= instance->get_capVeiculos() && newCap2 <= instance->get_capVeiculos()) {
+                            routes[r1_idx].capacity = newCap1;
+                            routes[r2_idx].capacity = newCap2;
+                            return routes;
                         } else {
-                            swap(routes[i].stations[j], routes[i].stations[k]); // Reverte
+                            swap(routes[r1_idx].stations[s1_idx], routes[r2_idx].stations[s2_idx]); // Reverte
                         }
                     }
                 }
             }
         }
-
-        // 2. SWAP INTER-ROTAS
-        for (int r1_idx = 0; r1_idx < static_cast<int>(routes.size()); r1_idx++) {
-            for (int r2_idx = r1_idx + 1; r2_idx < static_cast<int>(routes.size()); r2_idx++) {
-                for (size_t s1_idx = 1; s1_idx < routes[r1_idx].stations.size() - 1; s1_idx++) {
-                    for (size_t s2_idx = 1; s2_idx < routes[r2_idx].stations.size() - 1; s2_idx++) {
-                        
-                        int s1_prev = routes[r1_idx].stations[s1_idx - 1];
-                        int s1 = routes[r1_idx].stations[s1_idx];
-                        int s1_next = routes[r1_idx].stations[s1_idx + 1];
-                        
-                        int s2_prev = routes[r2_idx].stations[s2_idx - 1];
-                        int s2 = routes[r2_idx].stations[s2_idx];
-                        int s2_next = routes[r2_idx].stations[s2_idx + 1];
-
-                        double delta = - (distancias[s1_prev][s1] + distancias[s1][s1_next])
-                                       - (distancias[s2_prev][s2] + distancias[s2][s2_next])
-                                       + (distancias[s1_prev][s2] + distancias[s2][s1_next])
-                                       + (distancias[s2_prev][s1] + distancias[s1][s2_next]);
-
-                        if (delta < -1e-9) {
-                            swap(routes[r1_idx].stations[s1_idx], routes[r2_idx].stations[s2_idx]);
-
-                            int newCap1 = calculateRouteCapacity(routes[r1_idx].stations, instance);
-                            int newCap2 = calculateRouteCapacity(routes[r2_idx].stations, instance);
-
-                            if (newCap1 <= instance->get_capVeiculos() && newCap2 <= instance->get_capVeiculos()) {
-                                routes[r1_idx].capacity = newCap1;
-                                routes[r2_idx].capacity = newCap2;
-                                improvement = true;
-                                goto next_swap_iteration;
-                            } else {
-                                swap(routes[r1_idx].stations[s1_idx], routes[r2_idx].stations[s2_idx]); // Reverte
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        next_swap_iteration:;
     }
-    return routes;
+    
+    return routes; // Nenhuma melhoria encontrada
 }
 
 vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance) {
-    double bestCost = calculateTotalCost(routes, instance);
-    bool improvement = true;
+    // First Improvement Strategy
+    for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+        if (routes[i].stations.size() <= 4) continue;
 
-    while (improvement) {
-        improvement = false;
-        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
-            if (routes[i].stations.size() <= 4) continue;
+        for (size_t j = 1; j < routes[i].stations.size() - 2; j++) {
+            for (size_t k = j + 1; k < routes[i].stations.size() - 1; k++) {
+                
+                double delta = -instance->get_distancias()[routes[i].stations[j - 1]][routes[i].stations[j]]
+                               - instance->get_distancias()[routes[i].stations[k]][routes[i].stations[k + 1]]
+                               + instance->get_distancias()[routes[i].stations[j - 1]][routes[i].stations[k]]
+                               + instance->get_distancias()[routes[i].stations[j]][routes[i].stations[k + 1]];
 
-            for (size_t j = 1; j < routes[i].stations.size() - 2; j++) {
-                for (size_t k = j + 1; k < routes[i].stations.size() - 1; k++) {
+                if (delta < -1e-9) {
                     
-                    double delta = -instance->get_distancias()[routes[i].stations[j - 1]][routes[i].stations[j]]
-                                   - instance->get_distancias()[routes[i].stations[k]][routes[i].stations[k + 1]]
-                                   + instance->get_distancias()[routes[i].stations[j - 1]][routes[i].stations[k]]
-                                   + instance->get_distancias()[routes[i].stations[j]][routes[i].stations[k + 1]];
+                    vector<int> newStations = routes[i].stations;
+                    reverse(newStations.begin() + j, newStations.begin() + k + 1);
+                    
+                    int newCapacity = calculateRouteCapacity(newStations, instance);
 
-                    if (delta < -1e-9) { // Usar uma pequena tolerância para comparação de ponto flutuante
-                        
-                        vector<int> newStations = routes[i].stations;
-                        reverse(newStations.begin() + j, newStations.begin() + k + 1);
-                        
-                        int newCapacity = calculateRouteCapacity(newStations, instance);
-
-                        if (newCapacity <= instance->get_capVeiculos()) {
-                            routes[i].stations = newStations;
-                            routes[i].capacity = newCapacity;
-                            bestCost += delta;
-                            improvement = true;
-                            goto next_iteration; // Reinicia a busca a partir da primeira rota
-                        }
+                    if (newCapacity <= instance->get_capVeiculos()) {
+                        routes[i].stations = newStations;
+                        routes[i].capacity = newCapacity;
+                        return routes;
                     }
                 }
             }
         }
-        next_iteration:;
     }
-    return routes;
+    return routes; // Nenhuma melhoria encontrada
 }
 
 vector<Route> performReinsertion(vector<Route> routes, const Instance *instance) {
-    bool improvement = true;
     const auto& distancias = instance->get_distancias();
 
-    while (improvement) {
-        improvement = false;
+    // REINSERTION INTRA-ROTA - First Improvement
+    for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+        if (routes[i].stations.size() <= 3) continue;
 
-        // 1. REINSERTION INTRA-ROTA
-        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
-            if (routes[i].stations.size() <= 3) continue;
+        for (size_t j = 1; j < routes[i].stations.size() - 1; j++) {
+            for (size_t k = 1; k < routes[i].stations.size() - 1; k++) {
+                if (j == k || j == k-1) continue;
 
-            for (size_t j = 1; j < routes[i].stations.size() - 1; j++) {
-                for (size_t k = 1; k < routes[i].stations.size() -1; k++) {
-                    if (j == k || j == k-1) continue;
+                int s_j_prev = routes[i].stations[j - 1];
+                int s_j = routes[i].stations[j];
+                int s_j_next = routes[i].stations[j + 1];
+                int s_k_prev = routes[i].stations[k - 1];
+                int s_k = routes[i].stations[k];
 
-                    int s_j_prev = routes[i].stations[j - 1];
-                    int s_j = routes[i].stations[j];
-                    int s_j_next = routes[i].stations[j + 1];
-                    int s_k_prev = routes[i].stations[k - 1];
-                    int s_k = routes[i].stations[k];
+                double delta = - (distancias[s_j_prev][s_j] + distancias[s_j][s_j_next])
+                               - distancias[s_k_prev][s_k]
+                               + distancias[s_j_prev][s_j_next]
+                               + distancias[s_k_prev][s_j] + distancias[s_j][s_k];
 
-                    double delta = - (distancias[s_j_prev][s_j] + distancias[s_j][s_j_next])
-                                   - distancias[s_k_prev][s_k]
-                                   + distancias[s_j_prev][s_j_next]
-                                   + distancias[s_k_prev][s_j] + distancias[s_j][s_k];
+                if (delta < -1e-9) {
+                    vector<int> tempStations = routes[i].stations;
+                    tempStations.erase(tempStations.begin() + j);
+                    tempStations.insert(tempStations.begin() + (k > j ? k-1 : k), s_j);
+                    
+                    int newCapacity = calculateRouteCapacity(tempStations, instance);
+                    if (newCapacity <= instance->get_capVeiculos()) {
+                        routes[i].stations = tempStations;
+                        routes[i].capacity = newCapacity;
+                        return routes;
+                    }
+                }
+            }
+        }
+    }
+
+    // REINSERTION INTER-ROTAS
+    for (int r1_idx = 0; r1_idx < static_cast<int>(routes.size()); r1_idx++) {
+        if (routes[r1_idx].stations.size() <= 2) continue;
+
+        for (int r2_idx = 0; r2_idx < static_cast<int>(routes.size()); r2_idx++) {
+            if (r1_idx == r2_idx) continue;
+
+            for (size_t s1_idx = 1; s1_idx < routes[r1_idx].stations.size() - 1; s1_idx++) {
+                for (size_t s2_idx = 1; s2_idx < routes[r2_idx].stations.size(); s2_idx++) {
+                    
+                    int s1_prev = routes[r1_idx].stations[s1_idx - 1];
+                    int s1 = routes[r1_idx].stations[s1_idx];
+                    int s1_next = routes[r1_idx].stations[s1_idx + 1];
+                    int s2_prev = routes[r2_idx].stations[s2_idx - 1];
+                    int s2 = routes[r2_idx].stations[s2_idx];
+
+                    double delta = - (distancias[s1_prev][s1] + distancias[s1][s1_next])
+                                   - distancias[s2_prev][s2]
+                                   + distancias[s1_prev][s1_next]
+                                   + distancias[s2_prev][s1] + distancias[s1][s2];
 
                     if (delta < -1e-9) {
-                        vector<int> tempStations = routes[i].stations;
-                        tempStations.erase(tempStations.begin() + j);
-                        tempStations.insert(tempStations.begin() + (k > j ? k-1 : k), s_j);
+                        vector<int> r1_stations = routes[r1_idx].stations;
+                        vector<int> r2_stations = routes[r2_idx].stations;
                         
-                        int newCapacity = calculateRouteCapacity(tempStations, instance);
-                        if (newCapacity <= instance->get_capVeiculos()) {
-                            routes[i].stations = tempStations;
-                            routes[i].capacity = newCapacity;
-                            improvement = true;
-                            goto next_reinsertion_iteration;
-                        }
-                    }
-                }
-            }
-        }
+                        r1_stations.erase(r1_stations.begin() + s1_idx);
+                        r2_stations.insert(r2_stations.begin() + s2_idx, s1);
 
-        // 2. REINSERTION INTER-ROTAS
-        for (int r1_idx = 0; r1_idx < static_cast<int>(routes.size()); r1_idx++) {
-            if (routes[r1_idx].stations.size() <= 2) continue;
+                        int newCap1 = (r1_stations.size() > 2) ? calculateRouteCapacity(r1_stations, instance) : 0;
+                        int newCap2 = calculateRouteCapacity(r2_stations, instance);
 
-            for (int r2_idx = 0; r2_idx < static_cast<int>(routes.size()); r2_idx++) {
-                if (r1_idx == r2_idx) continue;
-
-                for (size_t s1_idx = 1; s1_idx < routes[r1_idx].stations.size() - 1; s1_idx++) {
-                    for (size_t s2_idx = 1; s2_idx < routes[r2_idx].stations.size(); s2_idx++) {
-                        
-                        int s1_prev = routes[r1_idx].stations[s1_idx - 1];
-                        int s1 = routes[r1_idx].stations[s1_idx];
-                        int s1_next = routes[r1_idx].stations[s1_idx + 1];
-                        int s2_prev = routes[r2_idx].stations[s2_idx - 1];
-                        int s2 = routes[r2_idx].stations[s2_idx];
-
-                        double delta = - (distancias[s1_prev][s1] + distancias[s1][s1_next])
-                                       - distancias[s2_prev][s2]
-                                       + distancias[s1_prev][s1_next]
-                                       + distancias[s2_prev][s1] + distancias[s1][s2];
-
-                        if (delta < -1e-9) {
-                            vector<int> r1_stations = routes[r1_idx].stations;
-                            vector<int> r2_stations = routes[r2_idx].stations;
-                            
-                            r1_stations.erase(r1_stations.begin() + s1_idx);
-                            r2_stations.insert(r2_stations.begin() + s2_idx, s1);
-
-                            int newCap1 = (r1_stations.size() > 2) ? calculateRouteCapacity(r1_stations, instance) : 0;
-                            int newCap2 = calculateRouteCapacity(r2_stations, instance);
-
-                            if (newCap1 <= instance->get_capVeiculos() && newCap2 <= instance->get_capVeiculos()) {
-                                routes[r2_idx] = {r2_stations, newCap2};
-                                if (r1_stations.size() <= 2) {
-                                    routes.erase(routes.begin() + r1_idx);
-                                } else {
-                                    routes[r1_idx] = {r1_stations, newCap1};
-                                }
-                                improvement = true;
-                                goto next_reinsertion_iteration;
+                        if (newCap1 <= instance->get_capVeiculos() && newCap2 <= instance->get_capVeiculos()) {
+                            routes[r2_idx] = {r2_stations, newCap2};
+                            if (r1_stations.size() <= 2) {
+                                routes.erase(routes.begin() + r1_idx);
+                            } else {
+                                routes[r1_idx] = {r1_stations, newCap1};
                             }
+                            return routes;
                         }
                     }
                 }
             }
         }
-        next_reinsertion_iteration:;
     }
-    return routes;
+    
+    return routes; // Nenhuma melhoria encontrada
 }
 
 vector<Route> GRASPConstruction(const Instance *instance) {
@@ -642,7 +543,7 @@ vector<Route> GRASPConstruction(const Instance *instance) {
         // Lista Restrita de Candidatos (RCL)
         double bestSaving = candidateSavings[0].value;
         double worstSaving = candidateSavings.back().value;
-        double threshold = bestSaving - alpha * (bestSaving - worstSaving);
+        double threshold = bestSaving - (alpha * (bestSaving - worstSaving));
         
         vector<Saving> rcl;
         for (const auto &saving : candidateSavings) {
