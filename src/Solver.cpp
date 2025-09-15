@@ -54,71 +54,40 @@ double calculateTotalCost(const vector<Route> &routes, const Instance *instance)
     return totalCost;
 }
 
-bool validateRoutesQuiet(const vector<Route> &routes, const Instance *instance) {
-    vector<bool> visitedStations(instance->get_qtdEstacoes() + 1, false);
-    visitedStations[0] = true; // deposito
-    vector<int> demandas = instance->get_demandas();
+int calculateRouteCapacity(const std::vector<int>& stations,
+                           const std::vector<int>& demandas) {
+    if (stations.size() <= 2) return 0; // rota só com depósito
 
-    for (int rota = 0; rota < static_cast<int>(routes.size()); rota++) {
-        const Route &route = routes[rota];
-        
-        // verifica se a rota começa e termina no depósito
-        if (route.stations.empty() || route.stations[0] != 0 || route.stations.back() != 0) {
-            return false;
-        }
-        
-        // Verificar se há estações suficientes na rota
-        if (route.stations.size() < 3) {
-            return false;
-        }
-        
-        //  carga inicial necessária (total de demandas negativas na rota)
-        int initialLoad = 0;
-        for (int i = 1; i < static_cast<int>(route.stations.size()) - 1; i++) {
-            int station = route.stations[i];
-            if (demandas[station - 1] < 0) { // -1 porque demandas não inclui depósito
-                initialLoad += abs(demandas[station - 1]); // demandas negativas
-            }
-        }
-        
-        int currentLoad = initialLoad; // Começar com a carga necessária
-        
-        // rota estação por estação (- depósito inicial e final)
-        for (int i = 1; i < static_cast<int>(route.stations.size()) - 1; i++) {
-            int station = route.stations[i];
-            
-            // validando estação
-            if (station == 0) {
-                return false;
-            }
-            
-            // validando unica visita na estação
-            if (visitedStations[station]) {
-                return false;
-            }
-            visitedStations[station] = true;
-            
-            // aplicar demanda da estação
-            currentLoad += demandas[station - 1]; // -1 porque demandas não inclui depósito
-            
-            // Verificar limites de capacidade
-            if (currentLoad < 0) {
-                return false;
-            }
-            
-            if (currentLoad > instance->get_capVeiculos()) {
-                return false;
-            }
-        }
+    int currentLoad = 0;
+    int minPrefix = 0;
+    int maxPrefix = 0;
+
+    // percorre apenas as estações (ignora depósito no início e fim)
+    for (size_t i = 1; i < stations.size() - 1; i++) {
+        int node = stations[i];
+        int demand = demandas[node - 1]; // atenção: node começa em 1
+
+        currentLoad += demand;
+
+        if (currentLoad < minPrefix) minPrefix = currentLoad;
+        if (currentLoad > maxPrefix) maxPrefix = currentLoad;
     }
-    
-    // todas estações visitadas
-    for (int i = 1; i <= instance->get_qtdEstacoes(); i++) {
-        if (!visitedStations[i]) {
+
+    int initialLoad = (minPrefix < 0) ? -minPrefix : 0;
+    int maxLoad = initialLoad + maxPrefix;
+
+    return maxLoad;
+}
+
+bool validateRoutesQuiet(const std::vector<Route>& routes,
+                         const std::vector<int>& demandas,
+                         int maxCapacity) {
+    for (const auto& route : routes) {
+        int requiredCapacity = calculateRouteCapacity(route.stations, demandas);
+        if (requiredCapacity > maxCapacity) {
             return false;
         }
     }
-    
     return true;
 }
 
@@ -155,7 +124,7 @@ void Solver::Solve(Instance *instance) {
         double improvedCost = calculateTotalCost(improvedRoutes, instance);
 
         // validar a solução antes de aceitar
-        if (validateRoutesQuiet(improvedRoutes, instance)) {
+        if (validateRoutesQuiet(improvedRoutes, instance->get_demandas(), instance->get_capVeiculos())) {
             if (improvedCost < bestCost) {
                 bestCost = improvedCost;
                 bestSolutions = improvedRoutes;
@@ -184,35 +153,6 @@ void Solver::Solve(Instance *instance) {
     // Opcionalmente, você pode adicionar a melhor rota final
     cout << "\n=== MELHOR SOLUÇÃO ENCONTRADA ===\n";
     printAllRoutes(bestSolutions, instance);
-}
-
-int calculateRouteCapacity(const vector<int> &stations, const Instance *instance) {
-    if (stations.size() <= 2) return 0;
-    
-    const vector<int> &demandas = instance->get_demandas();
-    
-    // 1. Calcular a carga inicial necessária (soma de todas as coletas)
-    int initialLoad = 0;
-    for (size_t i = 1; i < stations.size() - 1; ++i) {
-        int demand = demandas[stations[i] - 1];
-        if (demand < 0) {
-            initialLoad -= demand; // Somar o valor absoluto da demanda negativa
-        }
-    }
-    
-    // 2. Simular a rota para encontrar a carga máxima transportada
-    int currentLoad = initialLoad;
-    int maxLoad = initialLoad;
-    
-    for (size_t i = 1; i < stations.size() - 1; ++i) {
-        // Aplica a demanda da estação (positiva ou negativa)
-        currentLoad += demandas[stations[i] - 1];
-        if (currentLoad > maxLoad) {
-            maxLoad = currentLoad;
-        }
-    }
-    
-    return maxLoad;
 }
 
 vector<Route> VND(vector<Route> routes, const Instance *instance) {
@@ -302,7 +242,7 @@ vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
 
                 // Verificar se é uma melhoria válida e a melhor até agora
                 if (delta < bestDelta - 1e-9) {
-                    int newCapacity = calculateRouteCapacity(tempStations, instance);
+                    int newCapacity = calculateRouteCapacity(tempStations, instance->get_demandas());
                     if (newCapacity <= maxCapacity) {
                         bestDelta = delta;
                         foundImprovement = true;
@@ -338,8 +278,8 @@ vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
                         vector<int> r2_stations = stations2;
                         swap(r1_stations[s1_idx], r2_stations[s2_idx]);
 
-                        int newCap1 = calculateRouteCapacity(r1_stations, instance);
-                        int newCap2 = calculateRouteCapacity(r2_stations, instance);
+                        int newCap1 = calculateRouteCapacity(r1_stations,   instance->get_demandas());
+                        int newCap2 = calculateRouteCapacity(r2_stations, instance->get_demandas());
 
                         if (newCap1 <= maxCapacity && newCap2 <= maxCapacity) {
                             bestDelta = delta;
@@ -406,8 +346,8 @@ vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance) {
                 if (delta < bestDelta - 1e-9) {
                     vector<int> newStations = stations;
                     reverse(newStations.begin() + j, newStations.begin() + k + 1);
-                    
-                    int newCapacity = calculateRouteCapacity(newStations, instance);
+
+                    int newCapacity = calculateRouteCapacity(newStations, instance->get_demandas());
                     if (newCapacity <= maxCapacity) {
                         bestDelta = delta;
                         foundImprovement = true;
@@ -470,8 +410,8 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
                     vector<int> tempStations = stations;
                     tempStations.erase(tempStations.begin() + j);
                     tempStations.insert(tempStations.begin() + (k > j ? k - 1 : k), stationToMove);
-                    
-                    int newCapacity = calculateRouteCapacity(tempStations, instance);
+
+                    int newCapacity = calculateRouteCapacity(tempStations, instance->get_demandas());
                     if (newCapacity <= maxCapacity) {
                         bestDelta = delta;
                         foundImprovement = true;
@@ -512,8 +452,8 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
                         r1_stations.erase(r1_stations.begin() + s1_idx);
                         r2_stations.insert(r2_stations.begin() + s2_idx, stationToMove);
 
-                        int newCap1 = (r1_stations.size() > 2) ? calculateRouteCapacity(r1_stations, instance) : 0;
-                        int newCap2 = calculateRouteCapacity(r2_stations, instance);
+                        int newCap1 = (r1_stations.size() > 2) ? calculateRouteCapacity(r1_stations, instance->get_demandas()) : 0;
+                        int newCap2 = calculateRouteCapacity(r2_stations, instance->get_demandas());
 
                         if (newCap1 <= maxCapacity && newCap2 <= maxCapacity) {
                             bestDelta = delta;
@@ -657,12 +597,12 @@ vector<Route> GRASPConstruction(const Instance *instance) {
         if (chosen.route_idx == -1) {
             // Criar nova rota
             vector<int> newRouteStations = {0, chosen.station, 0};
-            int newCapacity = calculateRouteCapacity(newRouteStations, instance);
+            int newCapacity = calculateRouteCapacity(newRouteStations,  instance->get_demandas());
             routes.push_back({newRouteStations, newCapacity});
         } else {
             // Inserir em rota existente
             routes[chosen.route_idx].stations.insert(routes[chosen.route_idx].stations.begin() + chosen.position, chosen.station);
-            routes[chosen.route_idx].capacity = calculateRouteCapacity(routes[chosen.route_idx].stations, instance);
+            routes[chosen.route_idx].capacity = calculateRouteCapacity(routes[chosen.route_idx].stations,   instance->get_demandas());
         }
 
         visitedStations[chosen.station] = true;
