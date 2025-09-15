@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -std=c++17 -Iinclude -g -O0 -fsanitize=address -fsanitize=undefined
+CXXFLAGS = -Wall -std=c++17 -Iinclude -O3
 TARGET = jpBike
 
 # arquivos fonte

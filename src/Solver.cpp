@@ -340,226 +340,236 @@ vector<Route> VND(vector<Route> routes, const Instance *instance) {
     return routes;
 }
 
-vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
-    vector<Route> bestRoutes = routes;
-    double bestCost = calculateTotalCost(bestRoutes, instance);
-    vector<int> demandas = instance->get_demandas();
-
-    // troca estações dentro da mesma rota - SWAP INTRA-ROTA
-    for (int i = 0; i < static_cast<int>(routes.size()); i++) {
-        vector<int> &currentStations = routes[i].stations;
-
-        if (currentStations.size() <= 3) continue; // não há estações para trocar
-
-        // percorre todas combinações ignorando deposito (0 e n-1)
-        for (int j = 1; j < static_cast<int>(currentStations.size()) - 1; j++) {
-            for (int k = j + 1; k < static_cast<int>(currentStations.size()) - 1; k++) {
-                vector<Route> tempRoutes = routes;
-                swap(tempRoutes[i].stations[j], tempRoutes[i].stations[k]);
-
-                double tempCost = calculateTotalCost(tempRoutes, instance);
-
-                if (tempCost < bestCost) {
-                    bestCost = tempCost;
-                    bestRoutes = tempRoutes;
-                }
-            }
-        }
+double calculateRouteCost(const Route& route, const Instance* instance) {
+    double cost = 0.0;
+    for (size_t i = 0; i < route.stations.size() - 1; ++i) {
+        cost += instance->get_distancias()[route.stations[i]][route.stations[i + 1]];
     }
+    return cost;
+}
 
-    // trocar estações entre rotas - SWAP INTER-ROTA
-    for (int route1 = 0; route1 < static_cast<int>(routes.size()); route1++) {
-        for (int route2 = route1 + 1; route2 < static_cast<int>(routes.size()); route2++) {
-            
-            if (routes[route1].stations.size() <= 2 || routes[route2].stations.size() <= 2) continue;
-            
-            // tenta trocar cada estação da rota1 com cada estação da rota2
-            for (int pos1 = 1; pos1 < static_cast<int>(routes[route1].stations.size()) - 1; pos1++) {
-                for (int pos2 = 1; pos2 < static_cast<int>(routes[route2].stations.size()) - 1; pos2++) {
+vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
+    bool improvement = true;
+    const auto& distancias = instance->get_distancias();
+
+    while (improvement) {
+        improvement = false;
+        
+        // 1. SWAP INTRA-ROTA
+        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+            if (routes[i].stations.size() <= 3) continue;
+
+            for (size_t j = 1; j < routes[i].stations.size() - 1; j++) {
+                for (size_t k = j + 1; k < routes[i].stations.size() - 1; k++) {
                     
-                    int station1 = routes[route1].stations[pos1];
-                    int station2 = routes[route2].stations[pos2];
-                    
-                    // calcula mudança de capacidade
-                    int demand1 = abs(demandas[station1 - 1]);
-                    int demand2 = abs(demandas[station2 - 1]);
-                    
-                    int newCapacity1 = routes[route1].capacity - demand1 + demand2;
-                    int newCapacity2 = routes[route2].capacity - demand2 + demand1;
-                    
-                    // ve a viabilidade da troca
-                    if (newCapacity1 <= instance->get_capVeiculos() && 
-                        newCapacity2 <= instance->get_capVeiculos()) {
-                        
-                        vector<Route> tempRoutes = routes;
-                        
-                        // troca
-                        tempRoutes[route1].stations[pos1] = station2;
-                        tempRoutes[route2].stations[pos2] = station1;
-                        tempRoutes[route1].capacity = newCapacity1;
-                        tempRoutes[route2].capacity = newCapacity2;
-                        
-                        double tempCost = calculateTotalCost(tempRoutes, instance);
-                        
-                        if (tempCost < bestCost) {
-                            bestCost = tempCost;
-                            bestRoutes = tempRoutes;
+                    double delta = 0;
+                    int s_j_prev = routes[i].stations[j - 1];
+                    int s_j = routes[i].stations[j];
+                    int s_j_next = routes[i].stations[j + 1];
+                    int s_k_prev = routes[i].stations[k - 1];
+                    int s_k = routes[i].stations[k];
+                    int s_k_next = routes[i].stations[k + 1];
+
+                    if (k == j + 1) { // Estações adjacentes
+                        delta = -distancias[s_j_prev][s_j] - distancias[s_j][s_k] - distancias[s_k][s_k_next]
+                                + distancias[s_j_prev][s_k] + distancias[s_k][s_j] + distancias[s_j][s_k_next];
+                    } else { // Estações não adjacentes
+                        delta = -distancias[s_j_prev][s_j] - distancias[s_j][s_j_next] 
+                                - distancias[s_k_prev][s_k] - distancias[s_k][s_k_next]
+                                + distancias[s_j_prev][s_k] + distancias[s_k][s_j_next]
+                                + distancias[s_k_prev][s_j] + distancias[s_j][s_k_next];
+                    }
+
+                    if (delta < -1e-9) {
+                        swap(routes[i].stations[j], routes[i].stations[k]);
+                        int newCapacity = calculateRouteCapacity(routes[i].stations, instance);
+                        if (newCapacity <= instance->get_capVeiculos()) {
+                            routes[i].capacity = newCapacity;
+                            improvement = true;
+                            goto next_swap_iteration;
+                        } else {
+                            swap(routes[i].stations[j], routes[i].stations[k]); // Reverte
                         }
                     }
                 }
             }
         }
-    }
 
-    return bestRoutes;
+        // 2. SWAP INTER-ROTAS
+        for (int r1_idx = 0; r1_idx < static_cast<int>(routes.size()); r1_idx++) {
+            for (int r2_idx = r1_idx + 1; r2_idx < static_cast<int>(routes.size()); r2_idx++) {
+                for (size_t s1_idx = 1; s1_idx < routes[r1_idx].stations.size() - 1; s1_idx++) {
+                    for (size_t s2_idx = 1; s2_idx < routes[r2_idx].stations.size() - 1; s2_idx++) {
+                        
+                        int s1_prev = routes[r1_idx].stations[s1_idx - 1];
+                        int s1 = routes[r1_idx].stations[s1_idx];
+                        int s1_next = routes[r1_idx].stations[s1_idx + 1];
+                        
+                        int s2_prev = routes[r2_idx].stations[s2_idx - 1];
+                        int s2 = routes[r2_idx].stations[s2_idx];
+                        int s2_next = routes[r2_idx].stations[s2_idx + 1];
+
+                        double delta = - (distancias[s1_prev][s1] + distancias[s1][s1_next])
+                                       - (distancias[s2_prev][s2] + distancias[s2][s2_next])
+                                       + (distancias[s1_prev][s2] + distancias[s2][s1_next])
+                                       + (distancias[s2_prev][s1] + distancias[s1][s2_next]);
+
+                        if (delta < -1e-9) {
+                            swap(routes[r1_idx].stations[s1_idx], routes[r2_idx].stations[s2_idx]);
+
+                            int newCap1 = calculateRouteCapacity(routes[r1_idx].stations, instance);
+                            int newCap2 = calculateRouteCapacity(routes[r2_idx].stations, instance);
+
+                            if (newCap1 <= instance->get_capVeiculos() && newCap2 <= instance->get_capVeiculos()) {
+                                routes[r1_idx].capacity = newCap1;
+                                routes[r2_idx].capacity = newCap2;
+                                improvement = true;
+                                goto next_swap_iteration;
+                            } else {
+                                swap(routes[r1_idx].stations[s1_idx], routes[r2_idx].stations[s2_idx]); // Reverte
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        next_swap_iteration:;
+    }
+    return routes;
 }
 
 vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance) {
-    vector<Route> bestRoutes = routes;
-    double bestCost = calculateTotalCost(bestRoutes, instance);
- 
-    // melhorar ordem dentro de cada rota - 2-OPT INTRA-ROTA
-    for (int route = 0; route < static_cast<int>(routes.size()); route++) {
-        vector<int> &currentStations = routes[route].stations;
+    double bestCost = calculateTotalCost(routes, instance);
+    bool improvement = true;
 
-        if (currentStations.size() <= 4) continue; // tem q ter no minimo 4 estações pro 2-opt
+    while (improvement) {
+        improvement = false;
+        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+            if (routes[i].stations.size() <= 4) continue;
 
-        for (int i = 1; i < static_cast<int>(currentStations.size()) - 2; i++) {
-            for (int j = i + 1; j < static_cast<int>(currentStations.size()) - 1; j++) {
-                //  delta antes da modificação
-                double delta = -instance->get_distancias()[currentStations[i - 1]][currentStations[i]]
-                               - instance->get_distancias()[currentStations[j]][currentStations[j + 1]]
-                               + instance->get_distancias()[currentStations[i - 1]][currentStations[j]]
-                               + instance->get_distancias()[currentStations[i]][currentStations[j + 1]];
-
-                if (delta < 0) { // só fazer a troca se melhorar
-                    vector<int> tempStations = currentStations;
-                    reverse(tempStations.begin() + i, tempStations.begin() + j + 1);
-
-                    vector<Route> tempRoutes = routes;
-                    tempRoutes[route].stations = tempStations;
+            for (size_t j = 1; j < routes[i].stations.size() - 2; j++) {
+                for (size_t k = j + 1; k < routes[i].stations.size() - 1; k++) {
                     
-                    // capacidade real após a mudança
-                    tempRoutes[route].capacity = calculateRouteCapacity(tempStations, instance);
-                    
-                    // valida capacidade
-                    if (tempRoutes[route].capacity <= instance->get_capVeiculos()) {
-                        double tempCost = calculateTotalCost(tempRoutes, instance);
+                    double delta = -instance->get_distancias()[routes[i].stations[j - 1]][routes[i].stations[j]]
+                                   - instance->get_distancias()[routes[i].stations[k]][routes[i].stations[k + 1]]
+                                   + instance->get_distancias()[routes[i].stations[j - 1]][routes[i].stations[k]]
+                                   + instance->get_distancias()[routes[i].stations[j]][routes[i].stations[k + 1]];
 
-                        if (tempCost < bestCost) {
-                            bestCost = tempCost;
-                            bestRoutes = tempRoutes;
+                    if (delta < -1e-9) { // Usar uma pequena tolerância para comparação de ponto flutuante
+                        
+                        vector<int> newStations = routes[i].stations;
+                        reverse(newStations.begin() + j, newStations.begin() + k + 1);
+                        
+                        int newCapacity = calculateRouteCapacity(newStations, instance);
+
+                        if (newCapacity <= instance->get_capVeiculos()) {
+                            routes[i].stations = newStations;
+                            routes[i].capacity = newCapacity;
+                            bestCost += delta;
+                            improvement = true;
+                            goto next_iteration; // Reinicia a busca a partir da primeira rota
                         }
                     }
                 }
             }
         }
+        next_iteration:;
     }
-
-    return bestRoutes;
+    return routes;
 }
 
 vector<Route> performReinsertion(vector<Route> routes, const Instance *instance) {
-    vector<Route> bestRoutes = routes;
-    double bestCost = calculateTotalCost(bestRoutes, instance);
-    vector<int> demandas = instance->get_demandas();
+    bool improvement = true;
+    const auto& distancias = instance->get_distancias();
 
-    // mover estação dentro da mesma rota - REINSERTION INTRA-ROTA
-    for (int route = 0; route < static_cast<int>(routes.size()); route++) {
-        vector<int> &currentStations = routes[route].stations;
+    while (improvement) {
+        improvement = false;
 
-        if (currentStations.size() <= 3) continue; // sem estações suficientes pra realocar
+        // 1. REINSERTION INTRA-ROTA
+        for (int i = 0; i < static_cast<int>(routes.size()); i++) {
+            if (routes[i].stations.size() <= 3) continue;
 
-        for (int i = 1; i < static_cast<int>(currentStations.size()) - 1; i++) {
-            int stationToMove = currentStations[i];
-            
-            for (int j = 1; j < static_cast<int>(currentStations.size()) - 1; j++) {
-                if (i == j) continue;
+            for (size_t j = 1; j < routes[i].stations.size() - 1; j++) {
+                for (size_t k = 1; k < routes[i].stations.size() -1; k++) {
+                    if (j == k || j == k-1) continue;
 
-                vector<int> tempStations = currentStations;
-                tempStations.erase(tempStations.begin() + i); // removendo a estação
+                    int s_j_prev = routes[i].stations[j - 1];
+                    int s_j = routes[i].stations[j];
+                    int s_j_next = routes[i].stations[j + 1];
+                    int s_k_prev = routes[i].stations[k - 1];
+                    int s_k = routes[i].stations[k];
 
-                if (j < i)  tempStations.insert(tempStations.begin() + j, stationToMove); // inserindo na nova posição
-                else        tempStations.insert(tempStations.begin() + j - 1, stationToMove); // ajusta o índice se a remoção foi antes da inserção
+                    double delta = - (distancias[s_j_prev][s_j] + distancias[s_j][s_j_next])
+                                   - distancias[s_k_prev][s_k]
+                                   + distancias[s_j_prev][s_j_next]
+                                   + distancias[s_k_prev][s_j] + distancias[s_j][s_k];
 
-                // capacidade não muda em reinsertion (mesmas estações, só ordem diferente)
-                vector<Route> tempRoutes = routes;
-                tempRoutes[route].stations = tempStations;
-
-                double tempCost = calculateTotalCost(tempRoutes, instance);
-
-                if (tempCost < bestCost) {
-                    bestCost = tempCost;
-                    bestRoutes = tempRoutes;
-                }
-            }
-        }
-    }
-
-    // mover estação de uma rota para outra - REINSERTION INTER-ROTA
-    for (int fromRoute = 0; fromRoute < static_cast<int>(routes.size()); fromRoute++) {
-        for (int toRoute = 0; toRoute < static_cast<int>(routes.size()); toRoute++) {
-            if (fromRoute == toRoute) continue;
-
-            // tenta mover cada estação da rota origem (mesmo se a rota tiver apenas uma estação)
-            for (int stationPos = 1; stationPos < static_cast<int>(routes[fromRoute].stations.size()) - 1; stationPos++) {
-                int stationToMove = routes[fromRoute].stations[stationPos];
-
-                // tenta inserir em diferentes posições da rota destino
-                for (int insertPos = 1; insertPos < static_cast<int>(routes[toRoute].stations.size()); insertPos++) {
-                    vector<Route> tempRoutes = routes;
-
-                    // remove estação da rota origem
-                    tempRoutes[fromRoute].stations.erase(tempRoutes[fromRoute].stations.begin() + stationPos);
-
-                    // insere estação na rota destino
-                    tempRoutes[toRoute].stations.insert(tempRoutes[toRoute].stations.begin() + insertPos, stationToMove);
-
-                    // valida capacidade
-                    int newToCap = calculateRouteCapacity(tempRoutes[toRoute].stations, instance);
-                    if (newToCap > instance->get_capVeiculos()) {
-                        continue; // destino inválido
-                    }
-
-                    // remove rota se ficar vazia
-                    bool removedFromRoute = false;
-                    if (static_cast<int>(tempRoutes[fromRoute].stations.size()) == 2) { // [0, 0]
-                        // Se removemos a rota com índice menor que o destino, o índice do destino diminui
-                        tempRoutes.erase(tempRoutes.begin() + fromRoute);
-                    
-                        removedFromRoute = true;
-                    } else {
-                        // nova capacidade da rota origem
-                        int newFromCap = calculateRouteCapacity(tempRoutes[fromRoute].stations, instance);
-                        if (newFromCap > instance->get_capVeiculos()) {
-                            continue; // origem inválida
+                    if (delta < -1e-9) {
+                        vector<int> tempStations = routes[i].stations;
+                        tempStations.erase(tempStations.begin() + j);
+                        tempStations.insert(tempStations.begin() + (k > j ? k-1 : k), s_j);
+                        
+                        int newCapacity = calculateRouteCapacity(tempStations, instance);
+                        if (newCapacity <= instance->get_capVeiculos()) {
+                            routes[i].stations = tempStations;
+                            routes[i].capacity = newCapacity;
+                            improvement = true;
+                            goto next_reinsertion_iteration;
                         }
-                        tempRoutes[fromRoute].capacity = newFromCap;
-                    }
-
-                    // atualizar capacidade da rota destino
-                    if (!removedFromRoute) {
-                        tempRoutes[toRoute].capacity = newToCap;
-                    } else {
-                        // Se removido e fromRoute < toRoute, o índice do destino reduziu 1
-                        int adjustedToIndex = toRoute - (fromRoute < toRoute ? 1 : 0);
-                        if (adjustedToIndex >= 0 && adjustedToIndex < static_cast<int>(tempRoutes.size())) {
-                            tempRoutes[adjustedToIndex].capacity = newToCap;
-                        }
-                    }
-
-                    double tempCost = calculateTotalCost(tempRoutes, instance);
-
-                    if (tempCost < bestCost) {
-                        bestCost = tempCost;
-                        bestRoutes = tempRoutes;
                     }
                 }
             }
         }
-    }
 
-    return bestRoutes;
+        // 2. REINSERTION INTER-ROTAS
+        for (int r1_idx = 0; r1_idx < static_cast<int>(routes.size()); r1_idx++) {
+            if (routes[r1_idx].stations.size() <= 2) continue;
+
+            for (int r2_idx = 0; r2_idx < static_cast<int>(routes.size()); r2_idx++) {
+                if (r1_idx == r2_idx) continue;
+
+                for (size_t s1_idx = 1; s1_idx < routes[r1_idx].stations.size() - 1; s1_idx++) {
+                    for (size_t s2_idx = 1; s2_idx < routes[r2_idx].stations.size(); s2_idx++) {
+                        
+                        int s1_prev = routes[r1_idx].stations[s1_idx - 1];
+                        int s1 = routes[r1_idx].stations[s1_idx];
+                        int s1_next = routes[r1_idx].stations[s1_idx + 1];
+                        int s2_prev = routes[r2_idx].stations[s2_idx - 1];
+                        int s2 = routes[r2_idx].stations[s2_idx];
+
+                        double delta = - (distancias[s1_prev][s1] + distancias[s1][s1_next])
+                                       - distancias[s2_prev][s2]
+                                       + distancias[s1_prev][s1_next]
+                                       + distancias[s2_prev][s1] + distancias[s1][s2];
+
+                        if (delta < -1e-9) {
+                            vector<int> r1_stations = routes[r1_idx].stations;
+                            vector<int> r2_stations = routes[r2_idx].stations;
+                            
+                            r1_stations.erase(r1_stations.begin() + s1_idx);
+                            r2_stations.insert(r2_stations.begin() + s2_idx, s1);
+
+                            int newCap1 = (r1_stations.size() > 2) ? calculateRouteCapacity(r1_stations, instance) : 0;
+                            int newCap2 = calculateRouteCapacity(r2_stations, instance);
+
+                            if (newCap1 <= instance->get_capVeiculos() && newCap2 <= instance->get_capVeiculos()) {
+                                routes[r2_idx] = {r2_stations, newCap2};
+                                if (r1_stations.size() <= 2) {
+                                    routes.erase(routes.begin() + r1_idx);
+                                } else {
+                                    routes[r1_idx] = {r1_stations, newCap1};
+                                }
+                                improvement = true;
+                                goto next_reinsertion_iteration;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        next_reinsertion_iteration:;
+    }
+    return routes;
 }
 
 vector<Route> GRASPConstruction(const Instance *instance) {
