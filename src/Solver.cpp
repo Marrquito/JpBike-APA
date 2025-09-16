@@ -30,14 +30,13 @@ vector<Route> GRASPConstruction(const Instance *instance);
 double calculateTotalCost(const vector<Route> &routes, const Instance *instance) {
     if (routes.empty()) return 0.0;
     
-    const auto &distancias = instance->get_distancias(); // Cache da referência
+    const auto &distancias = instance->get_distancias(); // cache
     double totalCost = 0.0;
     
     for (const auto &route : routes) {
-        const auto &stations = route.stations; // Cache da referência
+        const auto &stations = route.stations; // cache
         const size_t stationsSize = stations.size();
         
-        // Loop desenrolado para as rotas pequenas (mais comuns)
         if (stationsSize == 3) { // [0, station, 0]
             totalCost += distancias[stations[0]][stations[1]] + distancias[stations[1]][stations[2]];
         } else if (stationsSize == 4) { // [0, s1, s2, 0]
@@ -45,7 +44,7 @@ double calculateTotalCost(const vector<Route> &routes, const Instance *instance)
                        + distancias[stations[1]][stations[2]]
                        + distancias[stations[2]][stations[3]];
         } else {
-            // Loop otimizado para rotas maiores
+            // rotas maioresclear
             for (size_t i = 0; i < stationsSize - 1; ++i) {
                 totalCost += distancias[stations[i]][stations[i + 1]];
             }
@@ -141,7 +140,7 @@ void Solver::Solve(Instance *instance) {
     cout << "\n=== RESULTADO FINAL GRASP ===\n";
     cout << fixed << setprecision(2);
     cout << "--------------------------------------------------------------------------\n";
-    cout << "| Instancia | Custo GRASP + VND | Valor Otimo |   Gap (%)   |\n";
+    cout << "| Instancia | Custo GRASP + VND | Valor Otimo |   Gap (%)   |\n";
     cout << "--------------------------------------------------------------------------\n";
     cout << "|"
               << setw(10) << instance->instanceName << " |"
@@ -305,13 +304,13 @@ vector<Route> performSwap(vector<Route> routes, const Instance *instance) {
         if (isBestMoveIntra) {
             // Aplicar o melhor swap intra-rota
             routes[bestIntraRouteIdx].stations = bestIntraStations;
-            routes[bestIntraRouteIdx].capacity = bestIntraCapacity;
+            routes[bestIntraRouteIdx].capacity = calculateRouteCapacity(bestIntraStations, instance->get_demandas());
         } else {
             // Aplicar o melhor swap inter-rotas
             routes[bestInterR1].stations = bestInterR1Stations;
-            routes[bestInterR1].capacity = bestInterCap1;
+            routes[bestInterR1].capacity = calculateRouteCapacity(bestInterR1Stations, instance->get_demandas());
             routes[bestInterR2].stations = bestInterR2Stations;
-            routes[bestInterR2].capacity = bestInterCap2;
+            routes[bestInterR2].capacity = calculateRouteCapacity(bestInterR2Stations, instance->get_demandas());
         }
     }
     
@@ -363,7 +362,7 @@ vector<Route> performTwoOpt(vector<Route> routes, const Instance *instance) {
     // APLICAR O MELHOR MOVIMENTO ENCONTRADO
     if (foundImprovement) {
         routes[bestRouteIdx].stations = bestStations;
-        routes[bestRouteIdx].capacity = bestCapacity;
+        routes[bestRouteIdx].capacity = calculateRouteCapacity(bestStations, instance->get_demandas());
     }
     
     return routes;
@@ -478,14 +477,14 @@ vector<Route> performReinsertion(vector<Route> routes, const Instance *instance)
         if (isBestMoveIntra) {
             // Aplicar o melhor movimento intra-rota
             routes[bestIntraRouteIdx].stations = bestIntraStations;
-            routes[bestIntraRouteIdx].capacity = bestIntraCapacity;
+            routes[bestIntraRouteIdx].capacity = calculateRouteCapacity(bestIntraStations, instance->get_demandas());
         } else {
             // Aplicar o melhor movimento inter-rotas
-            routes[bestInterR2] = {bestInterR2Stations, bestInterCap2};
+            routes[bestInterR2] = {bestInterR2Stations, calculateRouteCapacity(bestInterR2Stations, instance->get_demandas())};
             if (bestInterDeletesRoute) {
                 routes.erase(routes.begin() + bestInterR1);
             } else {
-                routes[bestInterR1] = {bestInterR1Stations, bestInterCap1};
+                routes[bestInterR1] = {bestInterR1Stations, calculateRouteCapacity(bestInterR1Stations, instance->get_demandas())};
             }
         }
     }
@@ -506,108 +505,82 @@ struct Insertion {
 };
 
 vector<Route> GRASPConstruction(const Instance *instance) {
-    vector<Route> routes;
+    // IMPLEMENTAÇÃO: Nearest Neighbor construction (substitui GRASP)
     const vector<int>& demandas = instance->get_demandas(); 
     const vector<vector<int>>& distancias = instance->get_distancias();
     
-    float alpha = instance->alpha;
     int maxCapacity = instance->get_capVeiculos();
     int totalStations = instance->get_qtdEstacoes();
     
     vector<bool> visitedStations(totalStations + 1, false);
     int unvisitedCount = totalStations;
+    vector<Route> routes;
+    routes.reserve( std::max(1, totalStations / 5) );
 
+    // Precompute distances from depot for seeding
     while (unvisitedCount > 0) {
-        vector<Insertion> candidates;
+        // find seed: nearest unvisited station to depot (0)
+        int seed = -1;
+        int bestDepDist = std::numeric_limits<int>::max();
+        for (int s = 1; s <= totalStations; ++s) {
+            if (visitedStations[s]) continue;
+            int d0s = distancias[0][s];
+            if (d0s < bestDepDist) {
+                bestDepDist = d0s;
+                seed = s;
+            }
+        }
+        if (seed == -1) break; // safety
 
-        // 1. Gerar todos os candidatos de inserção com heurística melhorada
-        for (int station = 1; station <= totalStations; station++) {
-            if (visitedStations[station]) continue;
+        // create new route starting with seed
+        vector<int> routeStations;
+        routeStations.push_back(0);
+        routeStations.push_back(seed);
+        routeStations.push_back(0);
+        visitedStations[seed] = true;
+        unvisitedCount--;
 
-            int stationDemand = abs(demandas[station - 1]);
+        // Update capacity for this route
+        int currCap = calculateRouteCapacity(routeStations, instance->get_demandas());
 
-            // a) Inserir em rotas existentes (com prioridade para rotas com espaço)
-            for (int r_idx = 0; r_idx < static_cast<int>(routes.size()); r_idx++) {
-                // Checar capacidade primeiro
-                if (routes[r_idx].capacity + stationDemand > maxCapacity) continue;
+        bool extended = true;
+        while (extended && unvisitedCount > 0) {
+            extended = false;
+            // last real node before depot
+            int last = routeStations[routeStations.size() - 2];
 
-                // Calcular porcentagem de capacidade utilizada
-                double capacityUsage = static_cast<double>(routes[r_idx].capacity + stationDemand) / maxCapacity;
-                
-                for (int pos = 1; pos < static_cast<int>(routes[r_idx].stations.size()); pos++) {
-                    int prev = routes[r_idx].stations[pos - 1];
-                    int next = routes[r_idx].stations[pos];
-                    double insertionCost = distancias[prev][station] + distancias[station][next] - distancias[prev][next];
-                    
-                    // Penalizar levemente inserções que deixam rota pouco utilizada
-                    if (capacityUsage < 0.6) {
-                        insertionCost += insertionCost * 0.1; // 10% de penalidade
-                    }
-                    
-                    candidates.push_back({insertionCost, station, r_idx, pos});
+            // find nearest feasible unvisited station to 'last'
+            int bestStation = -1;
+            int bestDist = std::numeric_limits<int>::max();
+            for (int s = 1; s <= totalStations; ++s) {
+                if (visitedStations[s]) continue;
+                int d = distancias[last][s];
+                if (d >= bestDist) continue;
+
+                // simulate appending s at end (before depot)
+                vector<int> temp = routeStations;
+                temp.insert(temp.end() - 1, s); // before final 0
+                int requiredCap = calculateRouteCapacity(temp, instance->get_demandas());
+                if (requiredCap <= maxCapacity) {
+                    bestDist = d;
+                    bestStation = s;
                 }
             }
 
-            // b) Criar uma nova rota para a estação (com penalidade maior para desencorajar rotas desnecessárias)
-            double newRouteCost = distancias[0][station] + distancias[station][0];
-            newRouteCost *= 1.2; // 20% de penalidade para novas rotas
-            candidates.push_back({newRouteCost, station, -1, -1});
-        }
-
-        if (candidates.empty()) break;
-
-        // 2. Construir a RCL (Lista Restrita de Candidatos) mais restritiva
-        sort(candidates.begin(), candidates.end());
-
-        double minCost = candidates.front().cost;
-        double maxCost = candidates.back().cost;
-        double threshold = minCost + alpha * (maxCost - minCost);
-
-        vector<Insertion> rcl;
-        for (const auto& candidate : candidates) {
-            if (candidate.cost <= threshold) {
-                rcl.push_back(candidate);
+            if (bestStation != -1) {
+                // append bestStation
+                routeStations.insert(routeStations.end() - 1, bestStation);
+                visitedStations[bestStation] = true;
+                unvisitedCount--;
+                currCap = calculateRouteCapacity(routeStations, instance->get_demandas());
+                extended = true;
             }
         }
 
-        // Limitar o tamanho da RCL para melhor qualidade
-        if (rcl.size() > 5) {
-            rcl.resize(5);
-        }
-
-        if (rcl.empty()) {
-            rcl.push_back(candidates.front());
-        }
-
-        // 3. Selecionar da RCL com leve preferência pelos melhores candidatos
-        int chosenIndex;
-        if (rcl.size() == 1) {
-            chosenIndex = 0;
-        } else {
-            // 60% de chance para os melhores 50% da RCL
-            if ((rand() % 100) < 60) {
-                chosenIndex = rand() % ((rcl.size() + 1) / 2);
-            } else {
-                chosenIndex = rand() % rcl.size();
-            }
-        }
-        
-        const Insertion& chosen = rcl[chosenIndex];
-
-        if (chosen.route_idx == -1) {
-            // Criar nova rota
-            vector<int> newRouteStations = {0, chosen.station, 0};
-            int newCapacity = calculateRouteCapacity(newRouteStations,  instance->get_demandas());
-            routes.push_back({newRouteStations, newCapacity});
-        } else {
-            // Inserir em rota existente
-            routes[chosen.route_idx].stations.insert(routes[chosen.route_idx].stations.begin() + chosen.position, chosen.station);
-            routes[chosen.route_idx].capacity = calculateRouteCapacity(routes[chosen.route_idx].stations,   instance->get_demandas());
-        }
-
-        visitedStations[chosen.station] = true;
-        unvisitedCount--;
+        // finalize route
+        int finalCap = calculateRouteCapacity(routeStations, instance->get_demandas());
+        routes.push_back({routeStations, finalCap});
     }
-    
+
     return routes;
 }
