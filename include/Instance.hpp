@@ -29,8 +29,8 @@ class Instance {
 
         int get_qtdEstacoes() const;
         int get_capVeiculos() const;
-        vector<int> get_demandas() const;
-        vector<vector<int>> get_distancias() const;
+        const vector<int>& get_demandas() const;
+        const vector<vector<int>>& get_distancias() const;
 
         void print() const;
 };

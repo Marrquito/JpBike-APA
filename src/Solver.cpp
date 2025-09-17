@@ -101,10 +101,8 @@ void printAllRoutes(const vector<Route> &routes, const Instance *instance) {
 }
 
 void Solver::Solve(Instance *instance) {
-    // Inicializar semente aleatória
-    // marcar o tempo inicial e final para exibir na tabela
-    auto startTime = chrono::high_resolution_clock::now();
     srand(static_cast<unsigned int>(time(nullptr)));
+    auto startTime = chrono::high_resolution_clock::now();
 
     vector<Route> bestSolutions;
     double bestCost     = numeric_limits<double>::max();

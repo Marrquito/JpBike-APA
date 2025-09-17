@@ -53,14 +53,14 @@ int Instance::get_qtdEstacoes() const {
     return this->qtdEstacoes;
 }
 
-vector<int> Instance::get_demandas() const {
+int Instance::get_capVeiculos() const {
+    return this->capVeiculos;
+}
+
+const vector<int>& Instance::get_demandas() const {
     return this->demandas;
 }
 
-vector<vector<int>> Instance::get_distancias() const {
+const vector<vector<int>>& Instance::get_distancias() const {
     return this->distancias;
-}
-
-int Instance::get_capVeiculos() const {
-    return this->capVeiculos;
 }
