@@ -7,23 +7,21 @@ using namespace std;
 
 int main() 
 {
-    cout << "Hello, karai!" << endl;
-    
-    string filename;
+    string filename = "";
     cout << "Digite o nome do arquivo de instância: ";
     cin >> filename;
 
     ifstream file("instancias/" + filename);
 
-    int valor_otimo;
+    int valor_otimo = 0;
     cout << "Digite o valor ótimo da instância: ";
     cin >> valor_otimo;
 
-    float alpha;
+    float alpha = 0.0;
     cout << "Digite o valor de alpha (0.0 a 1.0): ";
     cin >> alpha;
 
-    int repetitions;
+    int repetitions = 0;
     cout << "Digite o número de repetições para o GRASP: ";
     cin >> repetitions;
     
@@ -38,9 +36,11 @@ int main()
     file >> instancia;
     // instancia.print();
 
-    Solver solver;
-    solver.Solve(&instancia);
+    Solver *solver = new Solver();
+    solver->Solve(&instancia);
 
+
+    delete solver;
     return 0;
 }
 
