@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra -pedantic -Werror -std=c++17 -Iinclude -O3
+CXXFLAGS = -Wall -Wextra -pedantic -Werror -Wunused -std=c++17 -Iinclude -O3
 TARGET = jpBike
 
 # arquivos fonte
