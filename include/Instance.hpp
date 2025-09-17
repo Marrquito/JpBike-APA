@@ -24,7 +24,7 @@ class Instance {
 
         Instance(int valor_otimo, string instance_name, float alpha, int repetitions) : qtdEstacoes(0), qtdVeiculos(0), capVeiculos(0), valorOtimo(valor_otimo), instanceName(instance_name), alpha(alpha), repetitions(repetitions) {}
 
-        // Sobrecarga do operador de entrada (>>), declarada como friend
+
         friend istream &operator>>(istream &is, Instance &instance);
 
         int get_qtdEstacoes() const;
